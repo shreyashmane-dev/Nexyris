@@ -1,0 +1,16 @@
+{
+  "hostId": "ab169d737f5e",
+  "hostname": "DESKTOP-K7O9MTA",
+  "os": "Windows 11/10",
+  "cpu": "Intel(R) Core(TM) Ultra 5 225H",
+  "ramGB": 15.5,
+  "gpu": "Intel(R) Graphics",
+  "threads": 13,
+  "gpuLayers": 0,
+  "contextSize": 4096,
+  "batchSize": 512,
+  "temperature": 0.7,
+  "topP": 0.9,
+  "firstSeen": "2026-09-14T17:57:09.296Z",
+  "lastSeen": "2026-09-14T17:57:09.296Z"
+}

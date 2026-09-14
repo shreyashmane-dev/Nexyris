@@ -1,0 +1,29 @@
+# Node dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Active partial downloads
+downloads/*.part
+downloads/*.info.json
+
+# Heavy GGUF model binaries (stored locally on USB)
+models/gguf/*.gguf
+!models/gguf/.gitkeep
+
+# Database journals and locks
+data/database/*.db-journal
+data/database/*.db-wal
+data/database/*.db-shm
+data/.heartbeat
+
+# Temporary and scratch files
+temp/*
+!temp/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# OS generated files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,13 @@
+{
+  "product": "Nexyris Local",
+  "version": "1.0.0",
+  "installed": false,
+  "firstRunCompleted": false,
+  "theme": "dark",
+  "defaultApplication": "chat",
+  "defaultModelId": null,
+  "storageCheckThresholdMB": 1024,
+  "downloadMaxConcurrent": 1,
+  "offlineOnly": true,
+  "lastUpdated": "2026-09-14T17:20:58.961Z"
+}
