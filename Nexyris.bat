@@ -25,13 +25,6 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-:: Auto-install dependencies on first run if unzipped directly
-if not exist "%NEXYRIS_ROOT%\node_modules\" (
-    echo [INFO] First-time launch: installing portable dependencies...
-    cd /d "%NEXYRIS_ROOT%"
-    call npm install --omit=dev
-)
-
 echo [2/3] Starting Nexyris Local Server...
 set "PORT=38192"
 

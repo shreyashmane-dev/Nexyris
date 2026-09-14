@@ -15,11 +15,6 @@ if ! command -v node &> /dev/null; then
     exit 1
 fi
 
-if [ ! -d "$NEXYRIS_ROOT/node_modules" ]; then
-    echo "[INFO] First-time launch: installing portable dependencies..."
-    (cd "$NEXYRIS_ROOT" && npm install --omit=dev)
-fi
-
 PORT=38192
 node "$NEXYRIS_ROOT/server/index.js" &
 SERVER_PID=$!
