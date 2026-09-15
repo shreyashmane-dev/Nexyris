@@ -20,7 +20,7 @@ import {
   Zap,
   Wrench
 } from 'lucide-react';
-import { ModelItem, RuntimeStatus, HardwareInfo } from '../../types';
+import { ModelItem, RuntimeStatus, HardwareInfo, StorageInfo } from '../../types';
 import { 
   fetchModels, 
   deleteModel, 
@@ -41,6 +41,7 @@ interface ModelLibraryViewProps {
   models: ModelItem[];
   runtimeStatus: RuntimeStatus;
   hardware: HardwareInfo | null;
+  storage?: StorageInfo | null;
   onRefreshModels: () => void;
   onSelectModel: (modelId: string) => void;
 }
@@ -49,6 +50,7 @@ export const ModelLibraryView: React.FC<ModelLibraryViewProps> = ({
   models,
   runtimeStatus,
   hardware,
+  storage,
   onRefreshModels,
   onSelectModel,
 }) => {
@@ -211,9 +213,28 @@ export const ModelLibraryView: React.FC<ModelLibraryViewProps> = ({
             <Cpu size={22} color="#38bdf8" />
             <span>AI Model Management</span>
           </h1>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '3px' }}>
-            Your models live on this pendrive. Run them on any compatible PC.
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '3px', flexWrap: 'wrap' }}>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
+              Your models live on this pendrive. Run them on any compatible PC.
+            </p>
+            {storage && (
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '2px 9px',
+                backgroundColor: 'rgba(56, 189, 248, 0.08)',
+                border: '1px solid rgba(56, 189, 248, 0.25)',
+                borderRadius: '6px',
+                fontSize: '11.5px',
+              }}>
+                <HardDrive size={12} color="#38bdf8" />
+                <span style={{ color: 'var(--text-secondary)' }}>Storage Target:</span>
+                <span style={{ color: '#38bdf8', fontWeight: 600 }}>{storage.driveLetter}\models\gguf</span>
+                <span style={{ color: '#94a3b8' }}>({storage.freeGB} GB Free)</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Tab Switcher */}

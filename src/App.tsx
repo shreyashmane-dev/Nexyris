@@ -193,6 +193,7 @@ export const App: React.FC = () => {
             models={models}
             runtimeStatus={runtimeStatus}
             hardware={hardware}
+            storage={storage}
             onRefreshModels={handleRefreshModels}
             onSelectModel={handleSelectModel}
           />
@@ -257,7 +258,7 @@ export const App: React.FC = () => {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                 <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  Downloading to USB: {activeDownload.name}
+                  Downloading: {activeDownload.name}
                 </span>
                 <span style={{ fontSize: '12px', fontWeight: 700, color: '#38bdf8' }}>
                   {activeDownload.status === 'verifying' ? 'Verifying GGUF Header...' : `${activeDownload.percent}% • ${activeDownload.speedMBs || 0} MB/s`}
@@ -265,7 +266,7 @@ export const App: React.FC = () => {
                 </span>
               </div>
 
-              <div style={{ width: '100%', height: '6px', backgroundColor: 'rgba(255, 255, 255, 0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+              <div style={{ width: '100%', height: '6px', backgroundColor: 'rgba(255, 255, 255, 0.08)', borderRadius: '3px', overflow: 'hidden', marginBottom: '5px' }}>
                 <div style={{
                   width: `${activeDownload.percent}%`,
                   height: '100%',
@@ -273,6 +274,11 @@ export const App: React.FC = () => {
                   borderRadius: '3px',
                   transition: 'width 0.3s ease',
                 }} />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--text-muted)' }}>
+                <span>Saving to: <strong style={{ color: '#38bdf8' }}>{storage?.driveLetter || 'USB:'}\models\gguf\{activeDownload.filename}</strong></span>
+                <span>Free on Drive: {storage?.freeGB || 0} GB</span>
               </div>
             </div>
 
