@@ -102,4 +102,9 @@ exit /b 0
 :launch_console
 cls
 node "%NEXYRIS_ROOT%\scripts\cli.js"
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo [Console CLI terminated with code %ERRORLEVEL%]
+    pause
+)
 exit /b 0

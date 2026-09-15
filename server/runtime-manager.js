@@ -189,6 +189,8 @@ class RuntimeManager {
         '-ngl', String(gpuLayers),
         '-b', '512',
         '-ub', '512',
+        '--no-warmup',
+        '--no-mmap',
         '--threads-http', '2',
         '--simple-io',
         '--port', String(this.port),
@@ -196,6 +198,8 @@ class RuntimeManager {
       ];
 
       try {
+        let stderrBuffer = '';
+
         this.process = spawn(engine.path, args, {
           cwd: APPLICATION_ROOT,
           env: {
@@ -210,14 +214,15 @@ class RuntimeManager {
 
         this.process.stdout.on('data', (d) => {
           const out = d.toString();
-          if (out.includes('HTTP server listening') || out.includes('model loaded')) {
+          if (out.includes('HTTP server listening') || out.includes('model loaded') || out.includes('all slots are idle')) {
             this.setStatus('READY');
           }
         });
 
         this.process.stderr.on('data', (d) => {
           const err = d.toString();
-          if (err.includes('HTTP server listening') || err.includes('all slots are idle')) {
+          stderrBuffer = (stderrBuffer + err).slice(-2000);
+          if (err.includes('HTTP server listening') || err.includes('model loaded') || err.includes('all slots are idle')) {
             this.setStatus('READY');
           }
         });
@@ -225,7 +230,8 @@ class RuntimeManager {
         this.process.on('exit', (code) => {
           this.process = null;
           if (this.status !== 'STOPPED') {
-            this.setStatus('ERROR', `llama-server exited with code ${code}`);
+            const cleanErr = stderrBuffer.trim().split('\n').slice(-3).join(' ') || 'unknown error';
+            this.setStatus('ERROR', `llama-server exited with code ${code} (${cleanErr})`);
           }
         });
 

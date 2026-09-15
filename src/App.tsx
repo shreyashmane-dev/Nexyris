@@ -157,14 +157,16 @@ export const App: React.FC = () => {
 
       {/* Main Workspace Frame */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', position: 'relative' }}>
-        <TopBar
-          currentMode={currentMode}
-          models={models}
-          runtimeStatus={runtimeStatus}
-          onSelectModel={handleSelectModel}
-          onStopModel={handleStopModel}
-          onNavigateToModels={() => setCurrentMode('models')}
-        />
+        {currentMode !== 'chat' && (
+          <TopBar
+            currentMode={currentMode}
+            models={models}
+            runtimeStatus={runtimeStatus}
+            onSelectModel={handleSelectModel}
+            onStopModel={handleStopModel}
+            onNavigateToModels={() => setCurrentMode('models')}
+          />
+        )}
 
         {/* View Switcher */}
         {currentMode === 'chat' && (
@@ -173,6 +175,8 @@ export const App: React.FC = () => {
             onSelectModel={handleSelectModel}
             models={models}
             onNavigateToModels={() => setCurrentMode('models')}
+            onStopModel={handleStopModel}
+            onRefreshModels={handleRefreshModels}
           />
         )}
 

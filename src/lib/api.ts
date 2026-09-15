@@ -179,7 +179,7 @@ export async function streamChatCompletion(
   messages: Array<{ role: string; content: string }>,
   conversationId?: string,
   options?: any,
-  onToken?: (data: { text: string; count?: number }) => void,
+  onToken?: (data: { text: string; count?: number; tokPerSec?: number; tokenCount?: number }) => void,
   onDone?: (metrics: any) => void,
   onError?: (err: Error) => void
 ) {
@@ -266,6 +266,15 @@ export async function saveMessage(conversationId: string, role: string, content:
 
 export async function deleteConversation(id: string) {
   return fetch(`${API_BASE}/conversations/${id}`, { method: 'DELETE' }).then(r => r.json());
+}
+
+export async function updateConversation(id: string, title: string) {
+  const res = await fetch(`${API_BASE}/conversations/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+  return res.json();
 }
 
 // Terminal (Real shell execution on USB)

@@ -78,7 +78,9 @@ export interface ModelItem {
   source: string;
   quantization?: string;
   sizeGB?: number;
+  fileSizeGB?: number;
   sizeBytes?: number;
+  fileSizeBytes?: number;
   contextLength?: number;
   architecture?: string;
   installedDate?: string;
@@ -87,11 +89,15 @@ export interface ModelItem {
   description?: string;
   category?: string;
   downloadUrl?: string;
+  badge?: string;
+  label?: string;
+  isRecommended?: boolean;
 }
 
 export interface DownloadTask {
   id: string;
   name: string;
+  filename?: string;
   downloadedBytes: number;
   totalBytes: number;
   speedMBs: number;
@@ -119,6 +125,7 @@ export interface Message {
   model_id?: string;
   token_count?: number;
   tokens_per_sec?: number;
+  speed_tok_s?: number;
   created_at: string;
 }
 

@@ -14,6 +14,7 @@ import {
   getConversationMessages, 
   addMessage, 
   deleteConversation,
+  updateConversationTitle,
   getTerminalHistory,
   addTerminalCommand,
   listCodeProjects,
@@ -330,11 +331,12 @@ const server = http.createServer(async (req, res) => {
       const hardware = detectHardware();
       const liveModels = await getLiveHuggingFaceModels();
       const scored = liveModels.map(m => {
-        const compat = evaluateModelCompatibility(m.fileSizeBytes || 2000000000, hardware);
+        const sizeGB = m.fileSizeGB || (m.fileSizeBytes ? m.fileSizeBytes / (1024 ** 3) : 3.5);
+        const compat = evaluateModelCompatibility(sizeGB, hardware);
         return {
           ...m,
           compatibility: compat,
-          isRecommended: compat.tier === 'PERFECT' || compat.tier === 'OPTIMAL',
+          isRecommended: compat.status === 'RECOMMENDED' || compat.status === 'COMPATIBLE',
         };
       });
 
@@ -358,7 +360,17 @@ const server = http.createServer(async (req, res) => {
     if (method === 'GET' && pathname === '/api/catalog/search') {
       const query = url.searchParams.get('q') || 'gguf';
       const results = await searchHuggingFace(query);
-      return sendJson(res, 200, { results });
+      const hardware = detectHardware();
+      const scored = results.map(m => {
+        const sizeGB = m.fileSizeGB || (m.fileSizeBytes ? m.fileSizeBytes / (1024 ** 3) : 3.5);
+        const compat = evaluateModelCompatibility(sizeGB, hardware);
+        return {
+          ...m,
+          compatibility: compat,
+          isRecommended: compat.status === 'RECOMMENDED' || compat.status === 'COMPATIBLE',
+        };
+      });
+      return sendJson(res, 200, { results: scored });
     }
 
     if (method === 'GET' && pathname === '/api/catalog/ollama/popular') {
@@ -556,6 +568,15 @@ const server = http.createServer(async (req, res) => {
       const modelId = body.modelId || runtimeManager.currentModel?.id || null;
       const msg = addMessage(msgId, convId, body.role, body.content, body.tokenCount, body.tokPerSec, modelId);
       return sendJson(res, 200, msg);
+    }
+
+    if (method === 'PATCH' && pathname.startsWith('/api/conversations/')) {
+      const id = pathname.replace('/api/conversations/', '');
+      const body = await parseBody(req);
+      if (body.title) {
+        updateConversationTitle(id, body.title);
+      }
+      return sendJson(res, 200, { success: true });
     }
 
     if (method === 'DELETE' && pathname.startsWith('/api/conversations/')) {

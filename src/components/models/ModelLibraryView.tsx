@@ -59,6 +59,7 @@ export const ModelLibraryView: React.FC<ModelLibraryViewProps> = ({
   const [ollamaData, setOllamaData] = useState<{ local: any; popular: any[] } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isScanningOllama, setIsScanningOllama] = useState(false);
+  const [isLoadingHf, setIsLoadingHf] = useState(false);
   
   // Computer Import State
   const [pcFiles, setPcFiles] = useState<Array<{ name: string; path: string; source: string; sizeGB: number }>>([]);
@@ -103,10 +104,15 @@ export const ModelLibraryView: React.FC<ModelLibraryViewProps> = ({
   };
 
   const loadHfCatalog = async () => {
+    setIsLoadingHf(true);
     try {
       const data = await fetchHuggingFaceCatalog(searchQuery);
       setHfModels(data.curated || data.results || []);
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Failed to load Hugging Face catalog', e);
+    } finally {
+      setIsLoadingHf(false);
+    }
   };
 
   const loadOllamaCatalog = async () => {
@@ -497,51 +503,88 @@ export const ModelLibraryView: React.FC<ModelLibraryViewProps> = ({
             </button>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
-            {hfModels.map((model: any) => (
-              <div key={model.id} className="glass-panel" style={{ padding: '18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
-                    <div style={{ fontSize: '15px', fontWeight: 700, color: '#f8fafc' }}>
-                      {model.name}
+          {isLoadingHf ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#38bdf8' }}>
+              <RefreshCw size={28} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 12px' }} />
+              <div style={{ fontSize: '15px', fontWeight: 600, color: '#f8fafc' }}>Fetching Live AI Models from Hugging Face...</div>
+              <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '4px' }}>Querying Hugging Face Hub for newest verified GGUF weights</div>
+            </div>
+          ) : hfModels.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
+              <Search size={32} style={{ margin: '0 auto 12px', opacity: 0.6 }} />
+              <div style={{ fontSize: '15px', fontWeight: 600, color: '#f8fafc' }}>No matching models found</div>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px', maxWidth: '400px', margin: '6px auto 16px' }}>
+                Try searching for a different keyword or load the recommended presets.
+              </p>
+              <button className="btn btn-secondary" onClick={() => { setSearchQuery(''); loadHfCatalog(); }}>
+                Load Curated Presets
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
+              {hfModels.map((model: any) => (
+                <div key={model.id} className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '1px solid var(--border-card)', background: 'var(--bg-card)' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <div style={{ fontSize: '15.5px', fontWeight: 700, color: '#f8fafc' }}>
+                        {model.name}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        {model.label === 'UNCENSORED' && (
+                          <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 7px', borderRadius: '4px', backgroundColor: 'rgba(244, 63, 94, 0.15)', color: '#fb7185', border: '1px solid rgba(244, 63, 94, 0.3)' }}>
+                            🔓 UNCENSORED
+                          </span>
+                        )}
+                        {model.badge && (
+                          <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 7px', borderRadius: '4px', backgroundColor: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                            {model.badge}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      {model.label === 'UNCENSORED' && (
-                        <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                          🔓 UNCENSORED
-                        </span>
-                      )}
-                      {model.badge && (
-                        <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
-                          {model.badge}
-                        </span>
-                      )}
+                    <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: 1.45 }}>
+                      {model.description || 'Quantized model for local offline CPU/GPU execution.'}
+                    </p>
+
+                    {model.compatibility && (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        backgroundColor: model.compatibility.canRun ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                        border: `1px solid ${model.compatibility.canRun ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)'}`,
+                        fontSize: '11px',
+                        color: model.compatibility.canRun ? '#34d399' : '#fbbf24',
+                        marginBottom: '12px'
+                      }}>
+                        <Check size={12} />
+                        <span>{model.compatibility.reason || model.compatibility.accelerationAdvice}</span>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                      <span>Size: <strong style={{ color: '#f8fafc' }}>~{model.fileSizeGB} GB</strong></span>
+                      <span>Quant: <strong style={{ color: '#f8fafc' }}>{model.quantization || 'Q4_K_M'}</strong></span>
+                      <span>Context: <strong style={{ color: '#f8fafc' }}>{model.contextLength || 4096}</strong></span>
                     </div>
                   </div>
 
-                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: 1.4 }}>
-                    {model.description || 'Quantized model for local offline CPU/GPU execution.'}
-                  </p>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '14px' }}>
-                    <span>Size: <strong>~{model.fileSizeGB} GB</strong></span>
-                    <span>Quant: <strong>{model.quantization || 'Q4_K_M'}</strong></span>
-                    <span>Context: <strong>{model.contextLength || 4096}</strong></span>
-                  </div>
+                  <button
+                    className="btn btn-primary"
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                    onClick={() => handleDownloadModel(model)}
+                  >
+                    <Download size={14} />
+                    <span>Download to Pendrive</span>
+                  </button>
                 </div>
-
-                <button
-                  className="btn btn-primary"
-                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                  onClick={() => handleDownloadModel(model)}
-                >
-                  <Download size={14} />
-                  <span>Download to Pendrive</span>
-                </button>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

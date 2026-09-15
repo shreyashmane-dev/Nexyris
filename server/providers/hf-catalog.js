@@ -1,7 +1,8 @@
-/**
- * Hugging Face Provider Gateway
- * Dynamically queries Hugging Face Hub API for live GGUF models, downloads, likes, and files
- */
+import fs from 'node:fs';
+import path from 'node:path';
+import { PATHS } from '../dynamic-root.js';
+
+const DISK_CACHE_PATH = path.join(PATHS.data, 'catalog-cache.json');
 
 const FALLBACK_PRESETS = [
   {
@@ -138,12 +139,22 @@ export async function getLiveHuggingFaceModels(forceRefresh = false) {
     return memoryCache;
   }
 
+  // Check disk cache first if available
+  if (!memoryCache && fs.existsSync(DISK_CACHE_PATH)) {
+    try {
+      const diskData = JSON.parse(fs.readFileSync(DISK_CACHE_PATH, 'utf-8'));
+      if (Array.isArray(diskData) && diskData.length > 0) {
+        memoryCache = diskData;
+      }
+    } catch (e) {}
+  }
+
   try {
-    // 1. Fetch live top GGUF models directly from Hugging Face API
-    const url = 'https://huggingface.co/api/models?search=gguf&filter=gguf&sort=downloads&direction=-1&limit=25';
+    // 1. Fetch live top GGUF models directly from Hugging Face API with generous 15s timeout
+    const url = 'https://huggingface.co/api/models?search=gguf&filter=gguf&sort=downloads&direction=-1&limit=30';
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'Nexyris-Local-Studio' },
-      signal: AbortSignal.timeout(5000),
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Nexyris-Local-Studio' },
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!res.ok) throw new Error(`HF API HTTP ${res.status}`);
@@ -172,7 +183,7 @@ export async function getLiveHuggingFaceModels(forceRefresh = false) {
         creator: item.author || item.id.split('/')[0],
         format: 'GGUF',
         quantization: 'Q4_K_M',
-        fileSizeGB: 4.5, // approximate baseline if not inspected
+        fileSizeGB: 4.5,
         fileSizeBytes: 4800000000,
         contextLength: 8192,
         category: 'Live Hub',
@@ -186,7 +197,7 @@ export async function getLiveHuggingFaceModels(forceRefresh = false) {
       };
     });
 
-    // Merge with our verified presets (ensures verified URLs like NemoMix and Mistral are always at the top)
+    // Merge with our verified presets
     const combined = [...FALLBACK_PRESETS];
     for (const dm of dynamicModels) {
       if (!combined.some(c => c.id.toLowerCase() === dm.id.toLowerCase())) {
@@ -196,9 +207,16 @@ export async function getLiveHuggingFaceModels(forceRefresh = false) {
 
     memoryCache = combined;
     lastCacheTime = now;
+
+    // Persist to USB disk cache for offline access
+    try {
+      fs.writeFileSync(DISK_CACHE_PATH, JSON.stringify(combined, null, 2), 'utf-8');
+    } catch (e) {}
+
     return combined;
   } catch (err) {
-    console.warn('Hugging Face live API unreachable, using presets:', err.message);
+    console.warn('[Catalog] Live Hugging Face API unreachable, using cached presets:', err.message);
+    if (memoryCache && memoryCache.length > 0) return memoryCache;
     return FALLBACK_PRESETS;
   }
 }
@@ -206,13 +224,13 @@ export async function getLiveHuggingFaceModels(forceRefresh = false) {
 /**
  * Searches Hugging Face Hub live API for any community model query
  */
-export async function searchHuggingFace(query = 'gguf', limit = 20) {
-  const url = `https://huggingface.co/api/models?search=${encodeURIComponent(query)}&filter=gguf&sort=downloads&direction=-1&limit=${limit}`;
+export async function searchHuggingFace(query = 'gguf', limit = 25) {
+  const url = `https://huggingface.co/api/models?search=${encodeURIComponent(query + ' gguf')}&filter=gguf&sort=downloads&direction=-1&limit=${limit}`;
 
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'Nexyris-Local-Studio' },
-      signal: AbortSignal.timeout(6000),
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Nexyris-Local-Studio' },
+      signal: AbortSignal.timeout(12000),
     });
 
     if (!res.ok) throw new Error(`HF API error: ${res.statusText}`);
@@ -231,12 +249,15 @@ export async function searchHuggingFace(query = 'gguf', limit = 20) {
         likes: item.likes || 0,
         tags: item.tags || [],
         format: 'GGUF',
+        quantization: 'Q4_K_M',
+        fileSizeGB: 4.5,
         filename: defaultFilename,
         downloadUrl: `https://huggingface.co/${item.id}/resolve/main/${defaultFilename}`,
         description: `Direct from Hugging Face Hub (${item.downloads?.toLocaleString() || 0} downloads).`,
       };
     });
   } catch (err) {
+    console.warn('[Catalog] Search Hugging Face error:', err.message);
     return [];
   }
 }

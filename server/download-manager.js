@@ -245,6 +245,11 @@ class DownloadManager {
             return;
           }
 
+          if (task.retryCount > 0) {
+            task.retryCount = 0;
+            task.error = null;
+          }
+
           task.downloadedBytes += chunk.length;
           speedTrackerBytes += chunk.length;
 
@@ -313,17 +318,50 @@ class DownloadManager {
         });
       });
 
+      const handleNetworkFailure = (reason) => {
+        if (task.status !== 'downloading' && task.status !== 'reconnecting') return;
+
+        clearInterval(speedInterval);
+        task.retryCount = (task.retryCount || 0) + 1;
+        const maxRetries = 10;
+
+        if (task.retryCount <= maxRetries) {
+          task.status = 'reconnecting';
+          const backoffSec = Math.min(2 * task.retryCount, 15);
+          task.error = `Network disconnected (${reason}). Auto-resuming in ${backoffSec}s (Attempt ${task.retryCount}/${maxRetries})...`;
+          console.warn(`[DownloadManager] ${task.error}`);
+          this.notify('reconnecting', task);
+
+          setTimeout(() => {
+            if (task.status === 'reconnecting') {
+              task.status = 'downloading';
+              // Check current size on disk as resume offset
+              if (fs.existsSync(partPath)) {
+                try {
+                  startOffset = fs.statSync(partPath).size;
+                  task.downloadedBytes = startOffset;
+                } catch (e) {}
+              }
+              redirectHops = 0;
+              executeRequest(task.url);
+            }
+          }, backoffSec * 1000);
+        } else {
+          task.status = 'paused';
+          task.error = `Download paused after multiple failed attempts: ${reason}. You can resume anytime.`;
+          this.activeDownload = null;
+          this.notify('paused', task);
+          this.processQueue();
+        }
+      };
+
       req.on('timeout', () => {
-        req.destroy(new Error('Connection timed out while downloading model'));
+        req.destroy();
+        handleNetworkFailure('Connection timed out');
       });
 
       req.on('error', (err) => {
-        clearInterval(speedInterval);
-        task.status = 'error';
-        task.error = `Network error: ${err.message}`;
-        this.activeDownload = null;
-        this.notify('error', task);
-        this.processQueue();
+        handleNetworkFailure(err.message || 'Connection lost');
       });
 
       this.activeRequests.set(task.id, req);
