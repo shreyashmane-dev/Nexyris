@@ -13,5 +13,20 @@
     "architecture": "Llama",
     "installedDate": "2026-09-15T05:17:28.752Z",
     "status": "ready"
+  },
+  {
+    "id": "smollm2-135m-instruct-q2_k-gguf",
+    "name": "SmolLM2 135M Instruct Q2 K",
+    "filename": "SmolLM2-135M-Instruct-Q2_K.gguf",
+    "path": "models/gguf/SmolLM2-135M-Instruct-Q2_K.gguf",
+    "format": "GGUF",
+    "source": "Auto-Discovered",
+    "quantization": "Q2_K",
+    "sizeGB": 0.08,
+    "sizeBytes": 88202080,
+    "contextLength": 4096,
+    "architecture": "Llama",
+    "installedDate": "2026-09-15T09:25:01.486Z",
+    "status": "ready"
   }
 ]

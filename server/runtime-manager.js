@@ -178,7 +178,7 @@ class RuntimeManager {
       this.setStatus('LOADING_MODEL', `Loading ${modelInfo.name} into memory via llama-server...`);
 
       const hardware = detectHardware();
-      const threads = hostConfig?.threads || Math.min(hardware.cpu.cores || 4, 8);
+      const threads = hostConfig?.threads || hardware.cpu?.recommendedThreads || Math.min(hardware.cpu?.physicalCores || 4, 8);
       const gpuLayers = hardware.gpu?.hasDedicatedGpu ? (hostConfig?.gpuLayers || 99) : 0;
       const contextSize = hostConfig?.contextSize || 2048;
 
@@ -187,12 +187,23 @@ class RuntimeManager {
         '-c', String(contextSize),
         '-t', String(threads),
         '-ngl', String(gpuLayers),
+        '-b', '512',
+        '-ub', '512',
+        '--threads-http', '2',
+        '--simple-io',
         '--port', String(this.port),
         '--host', this.host,
       ];
 
       try {
         this.process = spawn(engine.path, args, {
+          cwd: APPLICATION_ROOT,
+          env: {
+            ...process.env,
+            TEMP: PATHS.temp,
+            TMP: PATHS.temp,
+            TMPDIR: PATHS.temp,
+          },
           windowsHide: true,
           stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -254,13 +265,8 @@ class RuntimeManager {
       this.setStatus('READY');
       return { success: true, engine: 'ollama' };
     } else {
-      // Zero-dependency native engine fallback
-      // Ensures immediate functionality on any host before external engine binary is downloaded
-      this.engineType = 'native-fallback';
-      this.setStatus('LOADING_MODEL', 'Initializing model...');
-      await new Promise(r => setTimeout(r, 100));
-      this.setStatus('READY');
-      return { success: true, engine: 'native-fallback' };
+      this.setStatus('ERROR', 'No local AI inference engine found. Please install the portable engine into USB bin/');
+      throw new Error('No local AI inference engine found. Please install the portable engine in the Models tab.');
     }
   }
 
@@ -268,11 +274,10 @@ class RuntimeManager {
    * Streams a chat completion response (Real SSE / chunked token generation)
    */
   async streamChat(messages, options = {}, onToken, onDone, onError) {
-    if (this.status !== 'READY') {
-      if (!this.currentModel) {
-        this.currentModel = { id: 'nexyris-local', name: 'Nexyris Local AI' };
-      }
-      this.setStatus('READY');
+    if (this.status !== 'READY' || !this.currentModel) {
+      const err = new Error('No AI model is currently active or running on the USB pendrive. Please start an installed model from the Models catalog.');
+      if (onError) onError(err);
+      throw err;
     }
 
     const startTime = Date.now();
@@ -382,25 +387,8 @@ class RuntimeManager {
       } catch (err) {
         if (onError) onError(err);
       }
-    } else if (this.engineType === 'native-fallback') {
-      const prompt = messages[messages.length - 1]?.content || '';
-      const responseText = `[Offline Native Engine] Processing: "${prompt}"\nLocal AI pipeline is connected to USB storage. Full neural network generation is active when models are launched via llama-server.`;
-      const words = responseText.split(' ');
-
-      for (let i = 0; i < words.length; i++) {
-        const word = words[i] + (i < words.length - 1 ? ' ' : '');
-        tokenCount++;
-        if (onToken) onToken({ text: word, count: tokenCount });
-        await new Promise(r => setTimeout(r, 15));
-      }
-
-      const elapsedMs = Date.now() - startTime;
-      const speedTokPerSec = Math.round((tokenCount / (Math.max(elapsedMs, 1) / 1000)) * 10) / 10;
-      this.lastMetrics = { tokensGenerated: tokenCount, speedTokPerSec, elapsedMs };
-
-      if (onDone) onDone({ tokensGenerated: tokenCount, speedTokPerSec, elapsedMs });
     } else {
-      const err = new Error('Local AI engine is not running. Please launch a model from the Models tab to start local inference.');
+      const err = new Error('Local AI engine is not running. Please launch an installed model from the Models tab to start local inference.');
       if (onError) onError(err);
     }
   }

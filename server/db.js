@@ -10,6 +10,15 @@ export function getDatabase() {
   const dbPath = path.join(PATHS.database, 'nexyris.db');
   dbInstance = new DatabaseSync(dbPath);
 
+  // Performance & storage isolation PRAGMAs (Zero host C: disk churn, fast WAL mode on USB)
+  dbInstance.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL;
+    PRAGMA temp_store = MEMORY;
+    PRAGMA foreign_keys = ON;
+    PRAGMA cache_size = -64000;
+  `);
+
   // Initialize schema
   dbInstance.exec(`
     CREATE TABLE IF NOT EXISTS conversations (
@@ -25,6 +34,7 @@ export function getDatabase() {
       conversation_id TEXT NOT NULL,
       role TEXT NOT NULL,
       content TEXT NOT NULL,
+      model_id TEXT,
       token_count INTEGER DEFAULT 0,
       tokens_per_sec REAL DEFAULT 0,
       created_at TEXT NOT NULL,
@@ -54,6 +64,13 @@ export function getDatabase() {
       updated_at TEXT NOT NULL
     );
   `);
+
+  // Migration: Ensure model_id exists in messages table for multi-model history tracking
+  try {
+    dbInstance.exec(`ALTER TABLE messages ADD COLUMN model_id TEXT;`);
+  } catch (e) {
+    // Column already present in existing databases
+  }
 
   return dbInstance;
 }
@@ -92,23 +109,23 @@ export function getConversationMessages(conversationId) {
   return stmt.all(conversationId);
 }
 
-export function addMessage(id, conversationId, role, content, tokenCount = 0, tokPerSec = 0) {
+export function addMessage(id, conversationId, role, content, tokenCount = 0, tokPerSec = 0, modelId = null) {
   const db = getDatabase();
   const now = new Date().toISOString();
   
   const stmt = db.prepare(`
-    INSERT INTO messages (id, conversation_id, role, content, token_count, tokens_per_sec, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, conversation_id, role, content, model_id, token_count, tokens_per_sec, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  stmt.run(id, conversationId, role, content, tokenCount, tokPerSec, now);
+  stmt.run(id, conversationId, role, content, modelId || null, tokenCount, tokPerSec, now);
 
-  // Update conversation updated_at
+  // Update conversation updated_at and optionally model_id
   const updateStmt = db.prepare(`
-    UPDATE conversations SET updated_at = ? WHERE id = ?
+    UPDATE conversations SET updated_at = ?, model_id = COALESCE(?, model_id) WHERE id = ?
   `);
-  updateStmt.run(now, conversationId);
+  updateStmt.run(now, modelId || null, conversationId);
 
-  return { id, conversation_id: conversationId, role, content, token_count: tokenCount, tokens_per_sec: tokPerSec, created_at: now };
+  return { id, conversation_id: conversationId, role, content, model_id: modelId, token_count: tokenCount, tokens_per_sec: tokPerSec, created_at: now };
 }
 
 export function updateConversationTitle(id, title) {

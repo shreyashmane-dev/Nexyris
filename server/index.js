@@ -230,9 +230,16 @@ const server = http.createServer(async (req, res) => {
       const startTime = Date.now();
       const isWindows = process.platform === 'win32';
 
-      // Execute in APPLICATION_ROOT (the USB drive)
+      // Execute in APPLICATION_ROOT (the USB drive) with strict USB environment confinement
       exec(command, { 
         cwd: APPLICATION_ROOT, 
+        env: {
+          ...process.env,
+          TEMP: PATHS.temp,
+          TMP: PATHS.temp,
+          TMPDIR: PATHS.temp,
+          PORTABLE_ROOT: APPLICATION_ROOT,
+        },
         timeout: 30000,
         shell: isWindows ? 'powershell.exe' : '/bin/bash',
       }, (error, stdout, stderr) => {
@@ -440,6 +447,30 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: 'messages array is required' });
       }
 
+      // Zero-Model Guard: Strictly verify at least one model exists on the USB pendrive
+      const { models } = await modelManager.scanAndSyncModels();
+      if (!models || models.length === 0) {
+        return sendJson(res, 400, {
+          error: 'No AI model is installed on the USB pendrive. Please download or import a GGUF model first.',
+        });
+      }
+
+      // If runtime is not actively ready with a model, auto-launch the requested or first installed model
+      if (runtimeManager.status !== 'READY' || !runtimeManager.currentModel || (!runtimeManager.process && runtimeManager.engineType !== 'ollama')) {
+        const requestedModelId = options?.modelId;
+        const targetModel = (requestedModelId && models.find(m => m.id === requestedModelId || m.filename === requestedModelId)) ||
+          models[0];
+
+        try {
+          await runtimeManager.startModel(targetModel);
+          savePortableConfig({ activeModelId: targetModel.id });
+        } catch (startErr) {
+          return sendJson(res, 500, {
+            error: `Failed to initialize AI model (${targetModel.name}): ${startErr.message}`,
+          });
+        }
+      }
+
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -448,6 +479,8 @@ const server = http.createServer(async (req, res) => {
       });
 
       let accumulated = '';
+      const activeModelId = runtimeManager.currentModel?.id || models[0]?.id;
+
       try {
         await runtimeManager.streamChat(
           messages,
@@ -459,7 +492,7 @@ const server = http.createServer(async (req, res) => {
           (metrics) => {
             if (conversationId && accumulated.trim()) {
               const msgId = 'msg-' + Date.now();
-              addMessage(msgId, conversationId, 'assistant', accumulated, metrics.tokensGenerated, metrics.speedTokPerSec);
+              addMessage(msgId, conversationId, 'assistant', accumulated, metrics.tokensGenerated, metrics.speedTokPerSec, activeModelId);
             }
             res.write(`data: ${JSON.stringify({ type: 'done', metrics })}\n\n`);
             res.end();
@@ -520,7 +553,8 @@ const server = http.createServer(async (req, res) => {
       const convId = pathname.replace('/api/conversations/', '').replace('/messages', '');
       const body = await parseBody(req);
       const msgId = 'msg-' + Date.now();
-      const msg = addMessage(msgId, convId, body.role, body.content, body.tokenCount, body.tokPerSec);
+      const modelId = body.modelId || runtimeManager.currentModel?.id || null;
+      const msg = addMessage(msgId, convId, body.role, body.content, body.tokenCount, body.tokPerSec, modelId);
       return sendJson(res, 200, msg);
     }
 

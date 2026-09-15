@@ -191,7 +191,12 @@ export async function streamChatCompletion(
     });
 
     if (!res.ok) {
-      throw new Error(`Chat stream failed: ${res.statusText}`);
+      let errMsg = `Chat stream failed: ${res.statusText}`;
+      try {
+        const errJson = await res.json();
+        if (errJson.error) errMsg = errJson.error;
+      } catch (e) {}
+      throw new Error(errMsg);
     }
 
     const reader = res.body?.getReader();
@@ -250,11 +255,11 @@ export async function fetchMessages(conversationId: string): Promise<Message[]> 
   return res.json();
 }
 
-export async function saveMessage(conversationId: string, role: string, content: string, tokenCount = 0, tokPerSec = 0) {
+export async function saveMessage(conversationId: string, role: string, content: string, tokenCount = 0, tokPerSec = 0, modelId?: string) {
   const res = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ role, content, tokenCount, tokPerSec }),
+    body: JSON.stringify({ role, content, tokenCount, tokPerSec, modelId }),
   });
   return res.json();
 }

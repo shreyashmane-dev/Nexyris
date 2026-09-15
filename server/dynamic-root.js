@@ -31,7 +31,16 @@ export const PATHS = {
   cache: path.join(APPLICATION_ROOT, 'cache'),
   logs: path.join(APPLICATION_ROOT, 'logs'),
   apps: path.join(APPLICATION_ROOT, 'apps'),
+  temp: path.join(APPLICATION_ROOT, 'temp'),
 };
+
+// Guarantee strict USB pendrive isolation: Never allow Node, temp files, or child subprocesses to leak onto host C:\
+if (!fs.existsSync(PATHS.temp)) {
+  try { fs.mkdirSync(PATHS.temp, { recursive: true }); } catch (e) {}
+}
+process.env.TEMP = PATHS.temp;
+process.env.TMP = PATHS.temp;
+process.env.TMPDIR = PATHS.temp;
 
 /**
  * Resolves a relative path against APPLICATION_ROOT
@@ -78,6 +87,7 @@ export function ensureDirectoryStructure() {
     PATHS.cache,
     PATHS.logs,
     PATHS.apps,
+    PATHS.temp,
   ];
 
   for (const dir of dirsToEnsure) {

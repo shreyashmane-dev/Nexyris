@@ -16,10 +16,16 @@ Write-Host ""
 $modelsDir = Join-Path $USB_Drive "models\gguf"
 $binDir = Join-Path $USB_Drive "bin"
 $downloadsDir = Join-Path $USB_Drive "downloads"
+$tempDir = Join-Path $USB_Drive "temp"
 
 New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 New-Item -ItemType Directory -Force -Path $downloadsDir | Out-Null
+New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+
+# Redirect temporary files strictly to USB pendrive
+$env:TEMP = $tempDir
+$env:TMP = $tempDir
 
 function Get-USBFreeSpaceGB {
     try {

@@ -10,7 +10,8 @@ import {
   getTerminalHistory,
   saveCodeProject,
   listCodeProjects,
-  deleteCodeProject
+  deleteCodeProject,
+  getDatabase
 } from '../server/db.js';
 
 test('Database Persistence Tests (Native SQLite)', async (t) => {
@@ -43,6 +44,37 @@ test('Database Persistence Tests (Native SQLite)', async (t) => {
 
     const all = listConversations();
     assert.strictEqual(all.find(c => c.id === testConvId), undefined);
+  });
+
+  await t.test('Multi-model message tagging & shared database persistence', () => {
+    const multiConvId = 'multi-conv-' + Date.now();
+    createConversation(multiConvId, 'Multi Model Chat', 'smollm2-135m');
+
+    // Model 1 (SmolLM2) replies
+    addMessage('m-1', multiConvId, 'user', 'What is 2+2?', 0, 0, 'smollm2-135m');
+    addMessage('m-2', multiConvId, 'assistant', '2+2 is 4', 15, 60.5, 'smollm2-135m');
+
+    // User switches to Model 2 (Mistral 7B) in the same conversation
+    addMessage('m-3', multiConvId, 'user', 'Explain why.', 0, 0, 'mistral-7b');
+    addMessage('m-4', multiConvId, 'assistant', 'Addition is combining discrete sets.', 25, 45.2, 'mistral-7b');
+
+    const msgs = getConversationMessages(multiConvId);
+    assert.strictEqual(msgs.length, 4);
+    assert.strictEqual(msgs[1].model_id, 'smollm2-135m');
+    assert.strictEqual(msgs[3].model_id, 'mistral-7b');
+    assert.strictEqual(msgs[1].tokens_per_sec, 60.5);
+    assert.strictEqual(msgs[3].tokens_per_sec, 45.2);
+
+    deleteConversation(multiConvId);
+  });
+
+  await t.test('SQLite optimization PRAGMAs (WAL and memory temp_store)', () => {
+    const db = getDatabase();
+    const journal = db.prepare('PRAGMA journal_mode').get();
+    const tempStore = db.prepare('PRAGMA temp_store').get();
+
+    assert.strictEqual(journal.journal_mode.toLowerCase(), 'wal');
+    assert.strictEqual(Number(tempStore.temp_store), 2); // 2 = MEMORY
   });
 
   await t.test('Terminal command logging', () => {

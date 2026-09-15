@@ -116,6 +116,7 @@ export interface Message {
   conversation_id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  model_id?: string;
   token_count?: number;
   tokens_per_sec?: number;
   created_at: string;

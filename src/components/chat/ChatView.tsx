@@ -44,6 +44,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ runtimeStatus, onSelectModel
   const [liveMetrics, setLiveMetrics] = useState<{ tokPerSec: number; tokenCount: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -88,6 +89,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ runtimeStatus, onSelectModel
       setConversations([newConv, ...conversations]);
       setActiveConvId(newConv.id);
       setMessages([]);
+      setErrorMessage(null);
       if (inputRef.current) inputRef.current.focus();
     } catch (e) {}
   };
@@ -105,12 +107,14 @@ export const ChatView: React.FC<ChatViewProps> = ({ runtimeStatus, onSelectModel
   };
 
   const handleSendMessage = async () => {
-    if (!inputPrompt.trim() || isStreaming) return;
+    if (!inputPrompt.trim() || isStreaming || models.length === 0) return;
+
+    setErrorMessage(null);
+    const activeModelId = runtimeStatus.currentModel?.id || models[0]?.id;
 
     let convId = activeConvId;
     if (!convId) {
-      const modelId = runtimeStatus.currentModel?.id || models[0]?.id;
-      const newConv = await createConversation(inputPrompt.slice(0, 30), modelId);
+      const newConv = await createConversation(inputPrompt.slice(0, 30), activeModelId);
       setConversations([newConv, ...conversations]);
       convId = newConv.id;
       setActiveConvId(convId);
@@ -125,10 +129,11 @@ export const ChatView: React.FC<ChatViewProps> = ({ runtimeStatus, onSelectModel
       conversation_id: convId,
       role: 'user',
       content: userText,
+      model_id: activeModelId,
       created_at: new Date().toISOString(),
     };
     setMessages(prev => [...prev, userMsg]);
-    await saveMessage(convId, 'user', userText);
+    await saveMessage(convId, 'user', userText, 0, 0, activeModelId);
 
     // Prepare history payload for AI
     const historyPayload = [...messages, userMsg].map(m => ({
@@ -143,7 +148,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ runtimeStatus, onSelectModel
     await streamChatCompletion(
       historyPayload,
       convId,
-      {},
+      { modelId: activeModelId },
       // onToken
       (tokenData) => {
         setStreamingText(prev => prev + tokenData.text);
@@ -161,7 +166,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ runtimeStatus, onSelectModel
       (err) => {
         setIsStreaming(false);
         setStreamingText('');
-        alert('Chat error: ' + err.message);
+        setErrorMessage(err.message || 'Inference error communicating with model');
       }
     );
   };
@@ -452,6 +457,18 @@ export const ChatView: React.FC<ChatViewProps> = ({ runtimeStatus, onSelectModel
                           color: 'var(--text-muted)',
                         }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {msg.model_id && (
+                              <span style={{
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                                color: '#60a5fa',
+                                fontSize: '10.5px',
+                                fontWeight: 500,
+                              }}>
+                                {msg.model_id}
+                              </span>
+                            )}
                             {msg.tokens_per_sec ? (
                               <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#10b981' }}>
                                 <Zap size={11} />
@@ -573,6 +590,40 @@ export const ChatView: React.FC<ChatViewProps> = ({ runtimeStatus, onSelectModel
             margin: '0 auto',
             position: 'relative',
           }}>
+            {errorMessage && (
+              <div style={{
+                padding: '10px 14px',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                color: '#f87171',
+                fontSize: '13px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '10px',
+                marginBottom: '10px',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AlertTriangle size={15} color="#ef4444" />
+                  <span>{errorMessage}</span>
+                </div>
+                <button
+                  onClick={() => setErrorMessage(null)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#f87171',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    padding: '2px 6px',
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
             <div style={{
               display: 'flex',
               alignItems: 'center',

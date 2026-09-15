@@ -7,6 +7,13 @@ color 0B
 cd /d "%~dp0"
 set "NEXYRIS_ROOT=%CD%"
 
+:: Strict USB Pendrive Confinement - Zero Footprint on Host C: Drive
+if not exist "%NEXYRIS_ROOT%\temp" mkdir "%NEXYRIS_ROOT%\temp"
+if not exist "%NEXYRIS_ROOT%\data\browser-profile" mkdir "%NEXYRIS_ROOT%\data\browser-profile"
+set "TEMP=%NEXYRIS_ROOT%\temp"
+set "TMP=%NEXYRIS_ROOT%\temp"
+set "TMPDIR=%NEXYRIS_ROOT%\temp"
+
 echo =======================================================
 echo          NEXYRIS LOCAL - PORTABLE AI STUDIO
 echo      Your AI. Your Models. Your Drive. Your Data.
@@ -14,6 +21,7 @@ echo =======================================================
 echo.
 echo [1/3] Detecting portable pendrive environment...
 echo Portable USB Root: %NEXYRIS_ROOT%
+echo Storage Confinement: 100%% Portable (Zero C:\ Footprint)
 
 :: Check for embedded portable Node or system Node
 if exist "%NEXYRIS_ROOT%\tools\node-win\node.exe" (
@@ -28,6 +36,21 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
+echo.
+echo =======================================================
+echo Select Interface Mode:
+echo   [1] GUI Studio   (Windowed Desktop Browser Mode)
+echo   [2] Console Mode (100%% Terminal Interactive CLI)
+echo =======================================================
+echo.
+set "USER_MODE=1"
+set /p "USER_MODE=Enter choice [1 or 2, default: 1]: "
+
+if "%USER_MODE%"=="2" (
+    goto launch_console
+)
+
+echo.
 echo [2/3] Starting Nexyris Local Server on USB...
 set "PORT=38192"
 
@@ -46,19 +69,20 @@ if %ERRORLEVEL% NEQ 0 (
     )
 )
 
-:: Attempt to open in clean application window mode (Chrome / Edge)
+:: Attempt to open in clean application window mode (Chrome / Edge) with isolated USB profile
 set "APP_URL=http://127.0.0.1:%PORT%"
+set "USB_BROWSER_DATA=%NEXYRIS_ROOT%\data\browser-profile"
 
 if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" (
-    start "" "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" --app="%APP_URL%"
+    start "" "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" --user-data-dir="%USB_BROWSER_DATA%" --app="%APP_URL%"
     goto finish
 )
 if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" (
-    start "" "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" --app="%APP_URL%"
+    start "" "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" --user-data-dir="%USB_BROWSER_DATA%" --app="%APP_URL%"
     goto finish
 )
 if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" (
-    start "" "%ProgramFiles%\Google\Chrome\Application\chrome.exe" --app="%APP_URL%"
+    start "" "%ProgramFiles%\Google\Chrome\Application\chrome.exe" --user-data-dir="%USB_BROWSER_DATA%" --app="%APP_URL%"
     goto finish
 )
 
@@ -73,3 +97,9 @@ echo Close this window or use the in-app "Safe Eject" to exit.
 echo =======================================================
 echo.
 pause
+exit /b 0
+
+:launch_console
+cls
+node "%NEXYRIS_ROOT%\scripts\cli.js"
+exit /b 0
