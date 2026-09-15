@@ -92,9 +92,16 @@ class ModelManager {
       }
     }
 
-    // Save updated registry if new files were found
-    if (discoveredNew.length > 0) {
-      this.saveRegistry(registry);
+    // Clean up registry to remove entries whose files no longer exist on disk
+    const existingFileNames = new Set(files.filter(f => f.toLowerCase().endsWith('.gguf')));
+    const prunedRegistry = registry.filter(m => {
+      const fn = path.basename(m.path || m.filename || '');
+      return existingFileNames.has(fn);
+    });
+
+    // Save updated registry if new files were found or deleted files were pruned
+    if (discoveredNew.length > 0 || prunedRegistry.length !== registry.length) {
+      this.saveRegistry(prunedRegistry);
     }
 
     this.cachedModels = activeModels;
@@ -176,6 +183,10 @@ class ModelManager {
     this.saveRegistry(registry);
 
     return newModel;
+  }
+
+  async importExternalFile(sourcePath, options = {}) {
+    return this.importLocalGguf(sourcePath, options.name, options.onProgress);
   }
 
   /**

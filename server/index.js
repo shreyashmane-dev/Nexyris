@@ -26,7 +26,7 @@ import { downloadManager } from './download-manager.js';
 import { runtimeManager } from './runtime-manager.js';
 import { parseGgufHeader } from './gguf-parser.js';
 import { scanLocalOllama, importOllamaBlob, POPULAR_OLLAMA_MODELS } from './providers/ollama-scanner.js';
-import { CURATED_HF_MODELS, searchHuggingFace } from './providers/hf-catalog.js';
+import { getLiveHuggingFaceModels, searchHuggingFace, fetchRepoFiles } from './providers/hf-catalog.js';
 
 // Prevent server from crashing under any circumstance
 process.on('uncaughtException', (err) => {
@@ -269,17 +269,14 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'POST' && pathname === '/api/models/import-local') {
       const body = await parseBody(req);
-      const { sourcePath, name, copyFile } = body;
+      const sourcePath = body.sourcePath || body.filePath;
+      const name = body.name || body.customName;
 
       if (!sourcePath || !fs.existsSync(sourcePath)) {
         return sendJson(res, 400, { error: 'Invalid source path on host computer' });
       }
 
-      const imported = await modelManager.importExternalFile(sourcePath, {
-        name,
-        copyFile: copyFile !== false, // Default to copying into USB drive
-      });
-
+      const imported = await modelManager.importLocalGguf(sourcePath, name);
       return sendJson(res, 200, imported);
     }
 
@@ -314,7 +311,8 @@ const server = http.createServer(async (req, res) => {
     // -------------------------------------------------------------
     if (method === 'GET' && pathname === '/api/catalog/curated') {
       const hardware = detectHardware();
-      const scored = CURATED_HF_MODELS.map(m => {
+      const liveModels = await getLiveHuggingFaceModels();
+      const scored = liveModels.map(m => {
         const compat = evaluateModelCompatibility(m.fileSizeBytes || 2000000000, hardware);
         return {
           ...m,
@@ -331,6 +329,13 @@ const server = http.createServer(async (req, res) => {
           gpu: hardware.gpu.name,
         },
       });
+    }
+
+    if (method === 'GET' && pathname === '/api/catalog/model-files') {
+      const repoId = url.searchParams.get('repoId');
+      if (!repoId) return sendJson(res, 400, { error: 'repoId required' });
+      const files = await fetchRepoFiles(repoId);
+      return sendJson(res, 200, { files });
     }
 
     if (method === 'GET' && pathname === '/api/catalog/search') {
