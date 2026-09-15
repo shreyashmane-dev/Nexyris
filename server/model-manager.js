@@ -201,10 +201,11 @@ class ModelManager {
     }
 
     const model = registry[index];
-    const absPath = resolvePath(model.path);
+    const absPath = path.normalize(resolvePath(model.path));
+    const allowedDir = path.normalize(PATHS.modelsGguf);
 
     // Safeguard: strictly ensure the file is inside models/gguf
-    if (absPath.startsWith(PATHS.modelsGguf) && fs.existsSync(absPath)) {
+    if (absPath.toLowerCase().startsWith(allowedDir.toLowerCase()) && fs.existsSync(absPath)) {
       fs.unlinkSync(absPath);
     }
 

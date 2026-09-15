@@ -350,10 +350,21 @@ class DownloadManager {
   }
 
   resumeDownload(id) {
-    const task = this.queue.find(t => t.id === id);
+    let task = this.queue.find(t => t.id === id);
+    if (!task) {
+      const incomplete = this.getIncompleteDownloads().find(t => t.id === id);
+      if (incomplete) {
+        task = {
+          ...incomplete,
+          status: 'queued',
+          error: null,
+        };
+        this.queue.push(task);
+      }
+    }
     if (!task) return;
 
-    if (task.status === 'paused' || task.status === 'error') {
+    if (task.status === 'paused' || task.status === 'error' || task.status === 'queued') {
       task.status = 'queued';
       task.error = null;
       this.notify('resumed', task);

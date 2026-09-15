@@ -15,8 +15,10 @@ models/gguf/*.gguf
 # Executable binaries (stored on USB)
 bin/*.exe
 bin/*.dll
+bin/*.txt
 !bin/.gitkeep
 *.log
+config/hosts/*.json
 
 # Database journals and locks
 data/database/*.db-journal

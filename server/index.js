@@ -143,11 +143,11 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    if (method === 'GET' && pathname === '/api/system/storage') {
+    if (method === 'GET' && (pathname === '/api/system/storage' || pathname === '/api/storage')) {
       return sendJson(res, 200, getStorageInfo());
     }
 
-    if (method === 'GET' && pathname === '/api/system/hardware') {
+    if (method === 'GET' && (pathname === '/api/system/hardware' || pathname === '/api/hardware')) {
       return sendJson(res, 200, detectHardware(true));
     }
 
@@ -222,7 +222,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, getTerminalHistory(100));
     }
 
-    if (method === 'POST' && (pathname === '/api/terminal/exec' || pathname === '/api/terminal/command')) {
+    if (method === 'POST' && (pathname === '/api/terminal/exec' || pathname === '/api/terminal/execute' || pathname === '/api/terminal/command')) {
       const body = await parseBody(req);
       const command = (body.command || '').trim();
       if (!command) return sendJson(res, 400, { error: 'command is required' });
@@ -304,6 +304,16 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 500, { error: `Upload failed: ${err.message}` });
       });
       return;
+    }
+
+    if (method === 'DELETE' && pathname.startsWith('/api/models/')) {
+      const modelId = pathname.replace('/api/models/', '');
+      try {
+        const result = await modelManager.deleteModel(modelId);
+        return sendJson(res, 200, result);
+      } catch (err) {
+        return sendJson(res, 400, { error: err.message });
+      }
     }
 
     // -------------------------------------------------------------
@@ -403,7 +413,10 @@ const server = http.createServer(async (req, res) => {
 
       const hardware = detectHardware();
       const { models } = await modelManager.scanAndSyncModels(hardware);
-      const targetModel = models.find(m => m.id === modelId) || { id: modelId, name: modelId, relativePath: `models/gguf/${modelId}.gguf` };
+      const targetModel = models.find(m => m.id === modelId || m.filename === modelId || m.name === modelId);
+      if (!targetModel) {
+        return sendJson(res, 404, { error: `Model "${modelId}" is not installed on USB drive. Please download it first.` });
+      }
 
       const result = await runtimeManager.startModel(targetModel, hostConfig);
       savePortableConfig({ activeModelId: modelId });
