@@ -12,6 +12,12 @@ downloads/*.info.json
 models/gguf/*.gguf
 !models/gguf/.gitkeep
 
+# Executable binaries (stored on USB)
+bin/*.exe
+bin/*.dll
+!bin/.gitkeep
+*.log
+
 # Database journals and locks
 data/database/*.db-journal
 data/database/*.db-wal

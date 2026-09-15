@@ -109,7 +109,7 @@ class RuntimeManager {
     }
 
     // Official prebuilt standalone binary release from llama.cpp
-    const downloadUrl = 'https://github.com/ggerganov/llama.cpp/releases/download/b4500/llama-b4500-bin-win-cpu-x64.zip';
+    const downloadUrl = 'https://github.com/ggml-org/llama.cpp/releases/download/b3500/llama-b3500-bin-win-avx2-x64.zip';
     const tempZip = path.join(binDir, 'llama-temp.zip');
 
     if (onProgress) onProgress({ status: 'downloading', message: 'Downloading portable llama.cpp engine to USB (~16 MB)...' });
@@ -221,13 +221,16 @@ class RuntimeManager {
         this.setStatus('HEALTH_CHECKING', 'Verifying local AI engine readiness...');
         let ready = false;
         for (let i = 0; i < 45; i++) {
-          await new Promise(r => setTimeout(r, 1000));
+          await new Promise(r => setTimeout(r, 500));
           if (this.status === 'READY') {
             ready = true;
             break;
           }
+          if (this.status === 'ERROR') {
+            break;
+          }
           try {
-            const res = await fetch(`http://${this.host}:${this.port}/health`, { signal: AbortSignal.timeout(1500) });
+            const res = await fetch(`http://${this.host}:${this.port}/health`, { signal: AbortSignal.timeout(800) });
             if (res.ok) {
               ready = true;
               this.setStatus('READY');
@@ -237,7 +240,7 @@ class RuntimeManager {
         }
 
         if (!ready) {
-          throw new Error('Local llama-server did not become ready within 45 seconds');
+          throw new Error(this.errorDetails || 'Local llama-server did not become ready');
         }
 
         return { success: true, engine: 'llama-server' };
@@ -379,10 +382,9 @@ class RuntimeManager {
       } catch (err) {
         if (onError) onError(err);
       }
-    } else {
-      // Native engine token generator (zero external dependencies)
+    } else if (this.engineType === 'native-fallback') {
       const prompt = messages[messages.length - 1]?.content || '';
-      const responseText = `Recursion is a computational and programming method where a function calls itself directly or indirectly to solve smaller instances of a problem until reaching a termination condition. Nexyris Local Studio is executing 100% offline from your USB pendrive for query: "${prompt}".`;
+      const responseText = `[Offline Native Engine] Processing: "${prompt}"\nLocal AI pipeline is connected to USB storage. Full neural network generation is active when models are launched via llama-server.`;
       const words = responseText.split(' ');
 
       for (let i = 0; i < words.length; i++) {
@@ -397,6 +399,9 @@ class RuntimeManager {
       this.lastMetrics = { tokensGenerated: tokenCount, speedTokPerSec, elapsedMs };
 
       if (onDone) onDone({ tokensGenerated: tokenCount, speedTokPerSec, elapsedMs });
+    } else {
+      const err = new Error('Local AI engine is not running. Please launch a model from the Models tab to start local inference.');
+      if (onError) onError(err);
     }
   }
 

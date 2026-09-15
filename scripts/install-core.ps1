@@ -43,7 +43,7 @@ if ($freeGB -gt 0) {
 $llamaServer = Join-Path $binDir "llama-server.exe"
 if (-not (Test-Path $llamaServer)) {
     Write-Host "[1/2] Installing portable llama.cpp AI engine to USB..." -ForegroundColor Yellow
-    $engineZipUrl = "https://github.com/ggerganov/llama.cpp/releases/download/b4500/llama-b4500-bin-win-cpu-x64.zip"
+    $engineZipUrl = "https://github.com/ggml-org/llama.cpp/releases/download/b3500/llama-b3500-bin-win-avx2-x64.zip"
     $tempZip = Join-Path $binDir "llama-engine.zip"
 
     try {

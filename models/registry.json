@@ -1,1 +1,17 @@
-[]
+[
+  {
+    "id": "smollm2-135m-instruct-q4_k_m-gguf",
+    "name": "SmolLM2 135M Instruct Q4 K M",
+    "filename": "SmolLM2-135M-Instruct-Q4_K_M.gguf",
+    "path": "models/gguf/SmolLM2-135M-Instruct-Q4_K_M.gguf",
+    "format": "GGUF",
+    "source": "Auto-Discovered",
+    "quantization": "Q4_K_M",
+    "sizeGB": 0.1,
+    "sizeBytes": 105454432,
+    "contextLength": 4096,
+    "architecture": "Llama",
+    "installedDate": "2026-09-15T05:17:28.752Z",
+    "status": "ready"
+  }
+]
