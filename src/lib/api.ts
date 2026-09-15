@@ -29,7 +29,28 @@ export async function fetchHardware(): Promise<HardwareInfo> {
 }
 
 export async function requestSafeShutdown() {
-  const res = await fetch(`${API_BASE}/system/shutdown`, { method: 'POST' });
+  const res = await fetch(`${API_BASE}/system/eject`, { method: 'POST' });
+  return res.json();
+}
+
+export async function scanPcDownloads(): Promise<{ found: Array<{ name: string; path: string; source: string; sizeBytes: number; sizeGB: number }> }> {
+  const res = await fetch(`${API_BASE}/system/scan-downloads`);
+  return res.json();
+}
+
+export async function uploadGgufFile(file: File): Promise<any> {
+  const res = await fetch(`${API_BASE}/models/upload`, {
+    method: 'POST',
+    headers: {
+      'x-filename': file.name,
+      'Content-Type': 'application/octet-stream',
+    },
+    body: file,
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Failed to upload model file to USB');
+  }
   return res.json();
 }
 
@@ -39,15 +60,15 @@ export async function fetchModels(): Promise<{ models: ModelItem[]; newlyDiscove
   return res.json();
 }
 
-export async function importLocalGguf(filePath: string, customName?: string) {
+export async function importLocalGguf(sourcePath: string, name?: string) {
   const res = await fetch(`${API_BASE}/models/import-local`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filePath, customName }),
+    body: JSON.stringify({ sourcePath, name, copyFile: true }),
   });
   if (!res.ok) {
     const err = await res.json();
-    throw new Error(err.error || 'Failed to import local model');
+    throw new Error(err.error || 'Failed to import local model to USB');
   }
   return res.json();
 }
@@ -57,20 +78,22 @@ export async function deleteModel(id: string) {
   return res.json();
 }
 
-// Providers
+// Providers & Curated HuggingFace Catalogs
 export async function fetchHuggingFaceCatalog(query = '') {
-  const url = query ? `${API_BASE}/providers/huggingface?q=${encodeURIComponent(query)}` : `${API_BASE}/providers/huggingface`;
+  const url = query 
+    ? `${API_BASE}/catalog/search?q=${encodeURIComponent(query)}` 
+    : `${API_BASE}/catalog/curated`;
   const res = await fetch(url);
   return res.json();
 }
 
 export async function fetchOllamaCatalog() {
-  const res = await fetch(`${API_BASE}/providers/ollama`);
+  const res = await fetch(`${API_BASE}/catalog/ollama/popular`);
   return res.json();
 }
 
 export async function importOllamaBlob(blobPath: string, tag: string) {
-  const res = await fetch(`${API_BASE}/providers/ollama/import`, {
+  const res = await fetch(`${API_BASE}/catalog/ollama/import`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ blobPath, tag }),
@@ -82,13 +105,13 @@ export async function importOllamaBlob(blobPath: string, tag: string) {
   return res.json();
 }
 
-// Downloads
+// Downloads (Matches server /api/downloads/queue)
 export async function fetchDownloads(): Promise<{ active: DownloadTask | null; queue: DownloadTask[]; incomplete: any[] }> {
-  const res = await fetch(`${API_BASE}/downloads`);
+  const res = await fetch(`${API_BASE}/downloads/queue`);
   return res.json();
 }
 
-export async function queueDownload(modelData: Partial<ModelItem> & { url: string; expectedSize?: number }) {
+export async function queueDownload(modelData: Partial<ModelItem> & { url: string; expectedSize?: number; filename?: string; category?: string }) {
   const res = await fetch(`${API_BASE}/downloads/queue`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -102,28 +125,42 @@ export async function queueDownload(modelData: Partial<ModelItem> & { url: strin
 }
 
 export async function pauseDownload(id: string) {
-  return fetch(`${API_BASE}/downloads/pause/${id}`, { method: 'POST' }).then(r => r.json());
+  return fetch(`${API_BASE}/downloads/${id}/pause`, { method: 'POST' }).then(r => r.json());
 }
 
 export async function resumeDownload(id: string) {
-  return fetch(`${API_BASE}/downloads/resume/${id}`, { method: 'POST' }).then(r => r.json());
+  return fetch(`${API_BASE}/downloads/${id}/resume`, { method: 'POST' }).then(r => r.json());
 }
 
 export async function cancelDownload(id: string) {
-  return fetch(`${API_BASE}/downloads/cancel/${id}`, { method: 'POST' }).then(r => r.json());
+  return fetch(`${API_BASE}/downloads/${id}/cancel`, { method: 'POST' }).then(r => r.json());
 }
 
-// Runtime
+// Engine & Runtime
 export async function fetchRuntimeStatus(): Promise<RuntimeStatus> {
   const res = await fetch(`${API_BASE}/runtime/status`);
   return res.json();
 }
 
-export async function startRuntimeModel(modelId: string) {
+export async function fetchEngineStatus() {
+  const res = await fetch(`${API_BASE}/runtime/engine-status`);
+  return res.json();
+}
+
+export async function installPortableEngine() {
+  const res = await fetch(`${API_BASE}/runtime/install-engine`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Engine install failed');
+  }
+  return res.json();
+}
+
+export async function startRuntimeModel(modelId: string, hostConfig?: any) {
   const res = await fetch(`${API_BASE}/runtime/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ modelId }),
+    body: JSON.stringify({ modelId, hostConfig }),
   });
   if (!res.ok) {
     const err = await res.json();
@@ -142,7 +179,7 @@ export async function streamChatCompletion(
   messages: Array<{ role: string; content: string }>,
   conversationId?: string,
   options?: any,
-  onToken?: (data: { text: string; tokenCount: number; tokPerSec: number }) => void,
+  onToken?: (data: { text: string; count?: number }) => void,
   onDone?: (metrics: any) => void,
   onError?: (err: Error) => void
 ) {
@@ -226,18 +263,24 @@ export async function deleteConversation(id: string) {
   return fetch(`${API_BASE}/conversations/${id}`, { method: 'DELETE' }).then(r => r.json());
 }
 
-// Terminal
+// Terminal (Real shell execution on USB)
 export async function fetchTerminalHistory(): Promise<TerminalEntry[]> {
   const res = await fetch(`${API_BASE}/terminal/history`);
   return res.json();
 }
 
-export async function runTerminalCommand(command: string, modelId?: string): Promise<TerminalEntry> {
-  const res = await fetch(`${API_BASE}/terminal/command`, {
+export async function runTerminalCommand(command: string, modelId?: string): Promise<TerminalEntry & { stdout?: string; stderr?: string; exitCode?: number; cwd?: string }> {
+  const res = await fetch(`${API_BASE}/terminal/exec`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ command, modelId }),
   });
+  return res.json();
+}
+
+// Image Studio Gallery
+export async function fetchImageGallery(): Promise<{ gallery: Array<{ filename: string; url: string; createdAt: number; sizeBytes: number }> }> {
+  const res = await fetch(`${API_BASE}/image/gallery`);
   return res.json();
 }
 

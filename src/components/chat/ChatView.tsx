@@ -12,7 +12,9 @@ import {
   Sparkles,
   Zap,
   Clock,
-  Search
+  Search,
+  AlertTriangle,
+  Download
 } from 'lucide-react';
 import { Conversation, Message, ModelItem, RuntimeStatus } from '../../types';
 import { 
@@ -21,16 +23,18 @@ import {
   fetchMessages, 
   saveMessage, 
   deleteConversation,
-  streamChatCompletion 
+  streamChatCompletion,
+  installPortableEngine
 } from '../../lib/api';
 
 interface ChatViewProps {
   runtimeStatus: RuntimeStatus;
   onSelectModel: (modelId: string) => void;
   models: ModelItem[];
+  onNavigateToModels?: () => void;
 }
 
-export const ChatView: React.FC<ChatViewProps> = ({ runtimeStatus, onSelectModel, models }) => {
+export const ChatView: React.FC<ChatViewProps> = ({ runtimeStatus, onSelectModel, models, onNavigateToModels }) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -284,7 +288,61 @@ export const ChatView: React.FC<ChatViewProps> = ({ runtimeStatus, onSelectModel
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-app)' }}>
         {/* Messages Scroll Area */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
-          {messages.length === 0 && !streamingText ? (
+          {models.length === 0 ? (
+            <div style={{
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textAlign: 'center',
+              padding: '40px 20px',
+            }}>
+              <div style={{
+                width: '68px',
+                height: '68px',
+                borderRadius: '18px',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '20px',
+                color: '#ef4444',
+                boxShadow: '0 0 20px rgba(239, 68, 68, 0.15)',
+              }}>
+                <AlertTriangle size={34} />
+              </div>
+              <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>
+                Chat Unavailable — No Model Installed on USB
+              </h2>
+              <p style={{ fontSize: '14px', color: 'var(--text-secondary)', maxWidth: '500px', lineHeight: 1.6, marginBottom: '24px' }}>
+                To chat 100% offline, at least one AI model must be stored on your pendrive. You can download one directly to the USB or import GGUF files already on your computer.
+              </p>
+              {onNavigateToModels && (
+                <button
+                  onClick={onNavigateToModels}
+                  style={{
+                    padding: '12px 24px',
+                    background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 'var(--radius-md)',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: '0 4px 15px rgba(59, 130, 246, 0.3)',
+                  }}
+                >
+                  <Download size={16} />
+                  <span>Download or Import an AI Model</span>
+                </button>
+              )}
+            </div>
+          ) : messages.length === 0 && !streamingText ? (
             <div style={{
               height: '100%',
               display: 'flex',
@@ -527,7 +585,8 @@ export const ChatView: React.FC<ChatViewProps> = ({ runtimeStatus, onSelectModel
               <textarea
                 ref={inputRef}
                 rows={1}
-                placeholder="Ask anything... (Ctrl + Enter to send)"
+                disabled={models.length === 0}
+                placeholder={models.length === 0 ? "⚠️ Chat is unavailable: Please install or import a model on your USB pendrive first" : "Ask anything... (Ctrl + Enter to send)"}
                 value={inputPrompt}
                 onChange={(e) => setInputPrompt(e.target.value)}
                 onKeyDown={(e) => {
@@ -540,13 +599,14 @@ export const ChatView: React.FC<ChatViewProps> = ({ runtimeStatus, onSelectModel
                   flex: 1,
                   background: 'transparent',
                   border: 'none',
-                  color: 'var(--text-primary)',
+                  color: models.length === 0 ? 'var(--text-muted)' : 'var(--text-primary)',
                   fontSize: '14px',
                   resize: 'none',
                   padding: '8px',
                   maxHeight: '120px',
                   fontFamily: 'inherit',
                   outline: 'none',
+                  cursor: models.length === 0 ? 'not-allowed' : 'text',
                 }}
               />
 
@@ -563,11 +623,12 @@ export const ChatView: React.FC<ChatViewProps> = ({ runtimeStatus, onSelectModel
                 <button
                   className="btn btn-primary"
                   onClick={handleSendMessage}
-                  disabled={!inputPrompt.trim()}
+                  disabled={models.length === 0 || !inputPrompt.trim()}
                   style={{
                     padding: '8px 14px',
                     borderRadius: 'var(--radius-md)',
-                    opacity: inputPrompt.trim() ? 1 : 0.4,
+                    opacity: (models.length > 0 && inputPrompt.trim()) ? 1 : 0.35,
+                    cursor: (models.length > 0 && inputPrompt.trim()) ? 'pointer' : 'not-allowed',
                   }}
                 >
                   <Send size={14} />

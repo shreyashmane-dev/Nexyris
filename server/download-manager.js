@@ -10,6 +10,7 @@ class DownloadManager {
   constructor() {
     this.queue = [];
     this.activeDownload = null;
+    this.activeRequests = new Map();
     this.listeners = new Set();
   }
 
@@ -57,22 +58,30 @@ class DownloadManager {
   }
 
   /**
-   * Queues a model for download
+   * Queues a model or engine binary for download
    */
   async queueDownload(modelMetadata) {
-    const { id, name, url, expectedSize, filename } = modelMetadata;
+    const { id, name, url, expectedSize, filename, category } = modelMetadata;
     const targetFilename = filename || `${id}.gguf`;
-    const finalPath = path.join(PATHS.modelsGguf, targetFilename);
+    const finalDir = category === 'image' 
+      ? path.join(PATHS.root, 'models', 'image')
+      : (category === 'speech' ? path.join(PATHS.root, 'models', 'speech') : PATHS.modelsGguf);
 
-    if (fs.existsSync(finalPath)) {
-      throw new Error(`Model file ${targetFilename} already exists in models/gguf/`);
+    if (!fs.existsSync(finalDir)) {
+      fs.mkdirSync(finalDir, { recursive: true });
     }
 
-    // Check disk space
+    const finalPath = path.join(finalDir, targetFilename);
+
+    if (fs.existsSync(finalPath)) {
+      throw new Error(`Model file ${targetFilename} already exists in models/`);
+    }
+
+    // Check disk space on pendrive
     if (expectedSize) {
-      const spaceCheck = await checkRequiredSpace(expectedSize);
+      const spaceCheck = checkRequiredSpace(expectedSize);
       if (!spaceCheck.sufficient) {
-        throw new Error(`Insufficient storage! Need ${Math.round((expectedSize / (1024 ** 3)) * 10) / 10} GB, but only ${Math.round((spaceCheck.freeBytes / (1024 ** 3)) * 10) / 10} GB free.`);
+        throw new Error(`Insufficient storage on USB! Need ${Math.round((expectedSize / (1024 ** 3)) * 10) / 10} GB, but only ${Math.round((spaceCheck.freeBytes / (1024 ** 3)) * 10) / 10} GB free.`);
       }
     }
 
@@ -81,6 +90,7 @@ class DownloadManager {
       name,
       url,
       filename: targetFilename,
+      finalDir,
       expectedSize: expectedSize || 0,
       downloadedBytes: 0,
       totalBytes: expectedSize || 0,
@@ -92,7 +102,7 @@ class DownloadManager {
       created: Date.now(),
     };
 
-    // Check if partial exists
+    // Check if partial exists on pendrive
     const partPath = path.join(PATHS.downloads, `${id}.part`);
     if (fs.existsSync(partPath)) {
       downloadTask.downloadedBytes = fs.statSync(partPath).size;
@@ -101,7 +111,7 @@ class DownloadManager {
       }
     }
 
-    // Save info
+    // Save task info
     const infoPath = path.join(PATHS.downloads, `${id}.info.json`);
     fs.writeFileSync(infoPath, JSON.stringify(downloadTask, null, 2), 'utf-8');
 
@@ -154,26 +164,64 @@ class DownloadManager {
       }
     }, 1000);
 
-    const client = task.url.startsWith('https') ? https : http;
-    const headers = {
-      'User-Agent': 'Nexyris-Local/1.0',
-    };
+    let redirectHops = 0;
+    const MAX_REDIRECTS = 10;
 
-    if (startOffset > 0) {
-      headers['Range'] = `bytes=${startOffset}-`;
-    }
+    const executeRequest = (currentUrlStr) => {
+      let parsedUrl;
+      try {
+        parsedUrl = new URL(currentUrlStr);
+      } catch (e) {
+        clearInterval(speedInterval);
+        task.status = 'error';
+        task.error = `Invalid URL: ${currentUrlStr}`;
+        this.activeDownload = null;
+        this.notify('error', task);
+        this.processQueue();
+        return;
+      }
 
-    const makeRequest = (targetUrl) => {
-      const req = client.get(targetUrl, { headers }, (res) => {
-        // Follow redirects (e.g. HuggingFace CDN)
+      const client = parsedUrl.protocol === 'https:' ? https : http;
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Nexyris/1.0',
+        'Accept': '*/*',
+      };
+
+      if (startOffset > 0) {
+        headers['Range'] = `bytes=${startOffset}-`;
+      }
+
+      const options = {
+        protocol: parsedUrl.protocol,
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+        path: parsedUrl.pathname + parsedUrl.search,
+        headers,
+        timeout: 60000,
+      };
+
+      const req = client.get(options, (res) => {
+        // Follow redirects (301, 302, 303, 307, 308)
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          return makeRequest(res.headers.location);
+          redirectHops++;
+          if (redirectHops > MAX_REDIRECTS) {
+            clearInterval(speedInterval);
+            task.status = 'error';
+            task.error = 'Too many redirects when resolving model URL';
+            this.activeDownload = null;
+            this.notify('error', task);
+            this.processQueue();
+            return;
+          }
+          const nextUrl = new URL(res.headers.location, currentUrlStr).href;
+          res.resume();
+          return executeRequest(nextUrl);
         }
 
         if (res.statusCode !== 200 && res.statusCode !== 206) {
           clearInterval(speedInterval);
           task.status = 'error';
-          task.error = `HTTP Error ${res.statusCode}: ${res.statusMessage}`;
+          task.error = `Server returned HTTP ${res.statusCode}: ${res.statusMessage}`;
           this.activeDownload = null;
           this.notify('error', task);
           this.processQueue();
@@ -183,7 +231,7 @@ class DownloadManager {
         const contentLength = Number(res.headers['content-length']) || 0;
         if (res.statusCode === 200) {
           task.totalBytes = contentLength;
-          startOffset = 0; // Server doesn't support Range, starting from scratch
+          startOffset = 0;
         } else if (res.statusCode === 206) {
           task.totalBytes = startOffset + contentLength;
         }
@@ -211,31 +259,37 @@ class DownloadManager {
           clearInterval(speedInterval);
           if (task.status !== 'downloading') return;
 
-          // Step into verification
           task.status = 'verifying';
           this.notify('verifying', task);
 
           try {
-            // Verify GGUF header
-            const headerCheck = await parseGgufHeader(partPath);
-            if (!headerCheck.valid) {
-              task.status = 'error';
-              task.error = `Verification failed: ${headerCheck.error}`;
-              this.activeDownload = null;
-              this.notify('error', task);
-              return;
+            // If GGUF file, verify authentic header
+            if (task.filename.toLowerCase().endsWith('.gguf')) {
+              const headerCheck = await parseGgufHeader(partPath);
+              if (!headerCheck.valid) {
+                task.status = 'error';
+                task.error = `Corrupted GGUF header: ${headerCheck.error}`;
+                this.activeDownload = null;
+                this.notify('error', task);
+                return;
+              }
+              task.header = headerCheck;
             }
 
-            // Move from .part to final destination
-            const finalPath = path.join(PATHS.modelsGguf, task.filename);
+            // Move from .part to final destination in USB models directory
+            const finalDir = task.finalDir || PATHS.modelsGguf;
+            if (!fs.existsSync(finalDir)) fs.mkdirSync(finalDir, { recursive: true });
+            const finalPath = path.join(finalDir, task.filename);
+            
+            if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath);
             fs.renameSync(partPath, finalPath);
 
             // Clean info file
             if (fs.existsSync(infoPath)) fs.unlinkSync(infoPath);
 
             task.status = 'completed';
+            task.percent = 100;
             task.finalPath = toRelativePath(finalPath);
-            task.header = headerCheck;
             this.activeDownload = null;
             this.notify('completed', task);
 
@@ -252,11 +306,15 @@ class DownloadManager {
         writeStream.on('error', (err) => {
           clearInterval(speedInterval);
           task.status = 'error';
-          task.error = `Disk write error: ${err.message}`;
+          task.error = `Disk write error on USB: ${err.message}`;
           this.activeDownload = null;
           this.notify('error', task);
           this.processQueue();
         });
+      });
+
+      req.on('timeout', () => {
+        req.destroy(new Error('Connection timed out while downloading model'));
       });
 
       req.on('error', (err) => {
@@ -268,10 +326,10 @@ class DownloadManager {
         this.processQueue();
       });
 
-      task._req = req;
+      this.activeRequests.set(task.id, req);
     };
 
-    makeRequest(task.url);
+    executeRequest(task.url);
   }
 
   pauseDownload(id) {
@@ -280,7 +338,11 @@ class DownloadManager {
 
     if (task.status === 'downloading') {
       task.status = 'paused';
-      if (task._req) task._req.destroy();
+      const req = this.activeRequests.get(id);
+      if (req) {
+        req.destroy();
+        this.activeRequests.delete(id);
+      }
       this.activeDownload = null;
       this.notify('paused', task);
       this.processQueue();
@@ -311,8 +373,11 @@ class DownloadManager {
     }
 
     if (task) {
-      if (task._req) task._req.destroy();
-      // Remove part file and info
+      const req = this.activeRequests.get(id);
+      if (req) {
+        req.destroy();
+        this.activeRequests.delete(id);
+      }
       const partPath = path.join(PATHS.downloads, `${id}.part`);
       const infoPath = path.join(PATHS.downloads, `${id}.info.json`);
       if (fs.existsSync(partPath)) fs.unlinkSync(partPath);

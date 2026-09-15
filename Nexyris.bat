@@ -1,39 +1,50 @@
 @echo off
 setlocal enabledelayedexpansion
-title Nexyris Local - Portable Local AI Studio
+title Nexyris Local - Portable AI Studio
+color 0B
 
-:: Determine application root dynamically from batch file location
-set "SCRIPT_DIR=%~dp0"
-:: Remove trailing backslash if present
-if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
-set "NEXYRIS_ROOT=%SCRIPT_DIR%"
+:: Switch to the USB drive and directory where Nexyris.bat lives
+cd /d "%~dp0"
+set "NEXYRIS_ROOT=%CD%"
 
 echo =======================================================
 echo          NEXYRIS LOCAL - PORTABLE AI STUDIO
 echo      Your AI. Your Models. Your Drive. Your Data.
 echo =======================================================
 echo.
-echo [1/3] Detecting portable environment...
-echo Portable Root: %NEXYRIS_ROOT%
+echo [1/3] Detecting portable pendrive environment...
+echo Portable USB Root: %NEXYRIS_ROOT%
 
-:: Check for Node.js
+:: Check for embedded portable Node or system Node
+if exist "%NEXYRIS_ROOT%\tools\node-win\node.exe" (
+    set "PATH=%NEXYRIS_ROOT%\tools\node-win;!PATH!"
+)
+
 where node >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Node.js runtime not found on host computer.
-    echo Please ensure Node.js is installed on this PC.
+    echo Please install Node.js on this PC or place portable node in tools\node-win.
     pause
     exit /b 1
 )
 
-echo [2/3] Starting Nexyris Local Server...
+echo [2/3] Starting Nexyris Local Server on USB...
 set "PORT=38192"
 
-:: Start server in background
-start /B "" node "%NEXYRIS_ROOT%\server\index.js"
+:: Start server in background with explicit working directory on USB drive
+start /B "" /D "%NEXYRIS_ROOT%" node "%NEXYRIS_ROOT%\server\index.js"
 
-:: Wait for server health check
-echo [3/3] Waiting for studio interface to initialize...
-timeout /t 2 /nobreak >nul
+echo [3/3] Waiting for server to initialize...
+set /a attempts=0
+:wait_server
+timeout /t 1 /nobreak >nul
+set /a attempts+=1
+powershell -NoProfile -Command "(New-Object System.Net.Sockets.TcpClient).Connect('127.0.0.1', %PORT%)" >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    if !attempts! LSS 15 (
+        goto wait_server
+    )
+)
 
 :: Attempt to open in clean application window mode (Chrome / Edge)
 set "APP_URL=http://127.0.0.1:%PORT%"
@@ -57,7 +68,7 @@ start "" "%APP_URL%"
 :finish
 echo.
 echo =======================================================
-echo Nexyris Local is running at %APP_URL%
+echo Nexyris Local is running from your USB drive at %APP_URL%
 echo Close this window or use the in-app "Safe Eject" to exit.
 echo =======================================================
 echo.

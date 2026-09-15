@@ -1,7 +1,9 @@
 import http from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs';
-import { APPLICATION_ROOT, PATHS, ensureDirectoryStructure } from './dynamic-root.js';
+import os from 'node:os';
+import { exec } from 'node:child_process';
+import { APPLICATION_ROOT, PATHS, toRelativePath, ensureDirectoryStructure } from './dynamic-root.js';
 import { getStorageInfo, checkRequiredSpace, startStorageHeartbeat, getStorageAvailability } from './storage.js';
 import { detectHardware, evaluateModelCompatibility } from './hardware.js';
 import { getPortableConfig, savePortableConfig, getHostConfig, saveHostConfig } from './config-manager.js';
@@ -22,11 +24,23 @@ import {
 import { modelManager } from './model-manager.js';
 import { downloadManager } from './download-manager.js';
 import { runtimeManager } from './runtime-manager.js';
+import { parseGgufHeader } from './gguf-parser.js';
 import { scanLocalOllama, importOllamaBlob, POPULAR_OLLAMA_MODELS } from './providers/ollama-scanner.js';
 import { CURATED_HF_MODELS, searchHuggingFace } from './providers/hf-catalog.js';
 
+// Prevent server from crashing under any circumstance
+process.on('uncaughtException', (err) => {
+  console.error('Handled uncaught exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Handled unhandled rejection:', reason);
+});
+
 // Initialize directory structure & database
 ensureDirectoryStructure();
+const outputsDir = path.join(APPLICATION_ROOT, 'outputs');
+if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir, { recursive: true });
+
 getDatabase();
 
 const PORT = process.env.PORT || 38192;
@@ -35,7 +49,7 @@ startStorageHeartbeat(3000, (available) => {
   if (!available) {
     console.warn('⚠️ ALERT: Portable storage root disconnected!');
   } else {
-    console.log('✅ Storage verified online.');
+    // storage online
   }
 });
 
@@ -46,6 +60,8 @@ const MIME_TYPES = {
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
@@ -62,15 +78,26 @@ function parseBody(req) {
         resolve({});
       }
     });
+    req.on('error', () => resolve({}));
   });
 }
 
 function sendJson(res, statusCode, data) {
-  res.writeHead(statusCode, { 
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-  });
-  res.end(JSON.stringify(data));
+  if (res.headersSent) return;
+  try {
+    const jsonStr = JSON.stringify(data);
+    res.writeHead(statusCode, { 
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(jsonStr);
+  } catch (err) {
+    console.error('Failed to stringify JSON response:', err);
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Serialization error' }));
+    }
+  }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -99,9 +126,10 @@ const server = http.createServer(async (req, res) => {
       const portableConfig = getPortableConfig();
       const hostConfig = getHostConfig(hardware);
       const { models } = await modelManager.scanAndSyncModels(hardware);
+      const engine = await runtimeManager.findEngine();
 
       return sendJson(res, 200, {
-        product: 'Nexyris Local',
+        product: 'Nexyris Local Studio',
         applicationRoot: APPLICATION_ROOT,
         hardware,
         storage,
@@ -110,6 +138,8 @@ const server = http.createServer(async (req, res) => {
         modelsCount: models.length,
         storageOnline: getStorageAvailability(),
         runtimeStatus: runtimeManager.getStatus(),
+        engineAvailable: !!engine,
+        engineDetails: engine,
       });
     }
 
@@ -121,14 +151,115 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, detectHardware(true));
     }
 
-    if (method === 'POST' && pathname === '/api/system/shutdown') {
+    // Scan PC Downloads, Desktop, and Documents for GGUF models
+    if (method === 'GET' && pathname === '/api/system/scan-downloads') {
+      const homedir = os.homedir();
+      const searchDirs = [
+        { name: 'Downloads', dir: path.join(homedir, 'Downloads') },
+        { name: 'Desktop', dir: path.join(homedir, 'Desktop') },
+        { name: 'Documents', dir: path.join(homedir, 'Documents') },
+      ];
+
+      const foundFiles = [];
+      for (const item of searchDirs) {
+        if (fs.existsSync(item.dir)) {
+          try {
+            const files = fs.readdirSync(item.dir);
+            for (const file of files) {
+              if (file.toLowerCase().endsWith('.gguf') || file.toLowerCase().endsWith('.safetensors')) {
+                try {
+                  const fullPath = path.join(item.dir, file);
+                  const stat = fs.statSync(fullPath);
+                  foundFiles.push({
+                    name: file,
+                    path: fullPath,
+                    source: item.name,
+                    sizeBytes: stat.size,
+                    sizeGB: Math.round((stat.size / (1024 ** 3)) * 100) / 100,
+                  });
+                } catch (e) {}
+              }
+            }
+          } catch (e) {}
+        }
+      }
+
+      return sendJson(res, 200, { found: foundFiles });
+    }
+
+    // Safe Eject
+    if (method === 'POST' && pathname === '/api/system/eject') {
+      console.log('Safe Eject requested. Stopping runtime & syncing SQLite...');
       await runtimeManager.stopModel();
       closeDatabase();
-      return sendJson(res, 200, { success: true, message: 'All local resources released safely.' });
+      return sendJson(res, 200, { success: true, message: 'All processes halted and database synced. Safe to unplug USB.' });
     }
 
     // -------------------------------------------------------------
-    // Models APIs
+    // Portable AI Engine Management (llama-server / Ollama)
+    // -------------------------------------------------------------
+    if (method === 'GET' && pathname === '/api/runtime/engine-status') {
+      const engine = await runtimeManager.findEngine();
+      return sendJson(res, 200, {
+        available: !!engine,
+        engine,
+      });
+    }
+
+    if (method === 'POST' && pathname === '/api/runtime/install-engine') {
+      try {
+        const binPath = await runtimeManager.installPortableEngine();
+        return sendJson(res, 200, { success: true, binaryPath: binPath, message: 'Portable llama-server installed on USB drive!' });
+      } catch (err) {
+        return sendJson(res, 500, { error: err.message });
+      }
+    }
+
+    // -------------------------------------------------------------
+    // Real Terminal Execution API (On USB pendrive)
+    // -------------------------------------------------------------
+    if (method === 'GET' && pathname === '/api/terminal/history') {
+      return sendJson(res, 200, getTerminalHistory(100));
+    }
+
+    if (method === 'POST' && (pathname === '/api/terminal/exec' || pathname === '/api/terminal/command')) {
+      const body = await parseBody(req);
+      const command = (body.command || '').trim();
+      if (!command) return sendJson(res, 400, { error: 'command is required' });
+
+      const startTime = Date.now();
+      const isWindows = process.platform === 'win32';
+
+      // Execute in APPLICATION_ROOT (the USB drive)
+      exec(command, { 
+        cwd: APPLICATION_ROOT, 
+        timeout: 30000,
+        shell: isWindows ? 'powershell.exe' : '/bin/bash',
+      }, (error, stdout, stderr) => {
+        const elapsed = Date.now() - startTime;
+        const exitCode = error ? (error.code || 1) : 0;
+        let outputText = (stdout || '') + (stderr ? ('\n' + stderr) : '');
+        if (!outputText.trim()) {
+          outputText = exitCode === 0 ? '[Process completed successfully with exit code 0]' : `[Process failed with exit code ${exitCode}]`;
+        }
+
+        const id = 'term-' + Date.now();
+        const saved = addTerminalCommand(id, command, outputText.trim(), body.modelId);
+
+        return sendJson(res, 200, {
+          ...saved,
+          stdout: stdout || '',
+          stderr: stderr || '',
+          exitCode,
+          elapsed,
+          cwd: APPLICATION_ROOT,
+        });
+      });
+      return;
+    }
+
+    // -------------------------------------------------------------
+    // Model Management APIs
     // -------------------------------------------------------------
     if (method === 'GET' && pathname === '/api/models') {
       const hardware = detectHardware();
@@ -138,57 +269,95 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'POST' && pathname === '/api/models/import-local') {
       const body = await parseBody(req);
-      if (!body.filePath) return sendJson(res, 400, { error: 'filePath is required' });
-      const imported = await modelManager.importLocalGguf(body.filePath, body.customName);
+      const { sourcePath, name, copyFile } = body;
+
+      if (!sourcePath || !fs.existsSync(sourcePath)) {
+        return sendJson(res, 400, { error: 'Invalid source path on host computer' });
+      }
+
+      const imported = await modelManager.importExternalFile(sourcePath, {
+        name,
+        copyFile: copyFile !== false, // Default to copying into USB drive
+      });
+
       return sendJson(res, 200, imported);
     }
 
-    if (method === 'DELETE' && pathname.startsWith('/api/models/')) {
-      const id = pathname.replace('/api/models/', '');
-      if (runtimeManager.currentModel?.id === id) {
-        await runtimeManager.stopModel();
-      }
-      const result = await modelManager.deleteModel(id);
+    // Direct Browser File Upload to USB models directory
+    if (method === 'POST' && pathname === '/api/models/upload') {
+      const filename = req.headers['x-filename'] || `model-${Date.now()}.gguf`;
+      const cleanName = path.basename(filename);
+      const destPath = path.join(PATHS.modelsGguf, cleanName);
+
+      const writeStream = fs.createWriteStream(destPath);
+      req.pipe(writeStream);
+
+      writeStream.on('finish', async () => {
+        try {
+          const header = await parseGgufHeader(destPath);
+          const hardware = detectHardware();
+          const { models } = await modelManager.scanAndSyncModels(hardware);
+          return sendJson(res, 200, { success: true, filename: cleanName, header, models });
+        } catch (err) {
+          return sendJson(res, 200, { success: true, filename: cleanName });
+        }
+      });
+
+      writeStream.on('error', (err) => {
+        return sendJson(res, 500, { error: `Upload failed: ${err.message}` });
+      });
+      return;
+    }
+
+    // -------------------------------------------------------------
+    // Model Catalogs (Hugging Face & Ollama)
+    // -------------------------------------------------------------
+    if (method === 'GET' && pathname === '/api/catalog/curated') {
+      const hardware = detectHardware();
+      const scored = CURATED_HF_MODELS.map(m => {
+        const compat = evaluateModelCompatibility(m.fileSizeBytes || 2000000000, hardware);
+        return {
+          ...m,
+          compatibility: compat,
+          isRecommended: compat.tier === 'PERFECT' || compat.tier === 'OPTIMAL',
+        };
+      });
+
+      return sendJson(res, 200, {
+        curated: scored,
+        hardwareSummary: {
+          ramGB: hardware.ram.totalGB,
+          cpu: hardware.cpu.model,
+          gpu: hardware.gpu.name,
+        },
+      });
+    }
+
+    if (method === 'GET' && pathname === '/api/catalog/search') {
+      const query = url.searchParams.get('q') || 'gguf';
+      const results = await searchHuggingFace(query);
+      return sendJson(res, 200, { results });
+    }
+
+    if (method === 'GET' && pathname === '/api/catalog/ollama/popular') {
+      return sendJson(res, 200, { models: POPULAR_OLLAMA_MODELS });
+    }
+
+    if (method === 'GET' && pathname === '/api/catalog/ollama/local') {
+      const discovered = scanLocalOllama();
+      return sendJson(res, 200, discovered);
+    }
+
+    if (method === 'POST' && pathname === '/api/catalog/ollama/import') {
+      const body = await parseBody(req);
+      const result = await importOllamaBlob(body.blobPath, body.modelName);
       return sendJson(res, 200, result);
     }
 
     // -------------------------------------------------------------
-    // Providers APIs
+    // Download Manager APIs
     // -------------------------------------------------------------
-    if (method === 'GET' && pathname === '/api/providers/huggingface') {
-      const query = url.searchParams.get('q') || '';
-      const hardware = detectHardware();
-
-      if (query) {
-        const results = await searchHuggingFace(query);
-        return sendJson(res, 200, { query, results });
-      }
-
-      const enriched = CURATED_HF_MODELS.map(m => ({
-        ...m,
-        compatibility: hardware && m.fileSizeGB ? evaluateModelCompatibility(m.fileSizeGB, hardware) : null,
-      }));
-      return sendJson(res, 200, { curated: enriched });
-    }
-
-    if (method === 'GET' && pathname === '/api/providers/ollama') {
-      const localOllama = await scanLocalOllama();
-      return sendJson(res, 200, { local: localOllama, popular: POPULAR_OLLAMA_MODELS });
-    }
-
-    if (method === 'POST' && pathname === '/api/providers/ollama/import') {
-      const body = await parseBody(req);
-      if (!body.blobPath || !body.tag) return sendJson(res, 400, { error: 'blobPath and tag required' });
-      const imported = await importOllamaBlob(body.blobPath, body.tag);
-      const hardware = detectHardware();
-      await modelManager.scanAndSyncModels(hardware);
-      return sendJson(res, 200, imported);
-    }
-
-    // -------------------------------------------------------------
-    // Downloads APIs
-    // -------------------------------------------------------------
-    if (method === 'GET' && pathname === '/api/downloads') {
+    if (method === 'GET' && pathname === '/api/downloads/queue') {
       return sendJson(res, 200, downloadManager.getStatus());
     }
 
@@ -198,26 +367,26 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, task);
     }
 
-    if (method === 'POST' && pathname.startsWith('/api/downloads/pause/')) {
-      const id = pathname.replace('/api/downloads/pause/', '');
+    if (method === 'POST' && pathname.startsWith('/api/downloads/') && pathname.endsWith('/pause')) {
+      const id = pathname.replace('/api/downloads/', '').replace('/pause', '');
       downloadManager.pauseDownload(id);
       return sendJson(res, 200, { success: true });
     }
 
-    if (method === 'POST' && pathname.startsWith('/api/downloads/resume/')) {
-      const id = pathname.replace('/api/downloads/resume/', '');
+    if (method === 'POST' && pathname.startsWith('/api/downloads/') && pathname.endsWith('/resume')) {
+      const id = pathname.replace('/api/downloads/', '').replace('/resume', '');
       downloadManager.resumeDownload(id);
       return sendJson(res, 200, { success: true });
     }
 
-    if (method === 'POST' && pathname.startsWith('/api/downloads/cancel/')) {
-      const id = pathname.replace('/api/downloads/cancel/', '');
+    if (method === 'POST' && pathname.startsWith('/api/downloads/') && pathname.endsWith('/cancel')) {
+      const id = pathname.replace('/api/downloads/', '').replace('/cancel', '');
       downloadManager.cancelDownload(id);
       return sendJson(res, 200, { success: true });
     }
 
     // -------------------------------------------------------------
-    // Runtime APIs
+    // Runtime Lifecycle & Streaming APIs
     // -------------------------------------------------------------
     if (method === 'GET' && pathname === '/api/runtime/status') {
       return sendJson(res, 200, runtimeManager.getStatus());
@@ -225,16 +394,15 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'POST' && pathname === '/api/runtime/start') {
       const body = await parseBody(req);
-      const registry = modelManager.getRegistry();
-      const model = registry.find(m => m.id === body.modelId);
-      if (!model) return sendJson(res, 404, { error: `Model ${body.modelId} not found` });
+      const { modelId, hostConfig } = body;
 
       const hardware = detectHardware();
-      const hostConfig = getHostConfig(hardware);
-      const started = await runtimeManager.startModel(model, hostConfig);
-      savePortableConfig({ activeModelId: body.modelId });
+      const { models } = await modelManager.scanAndSyncModels(hardware);
+      const targetModel = models.find(m => m.id === modelId) || { id: modelId, name: modelId, relativePath: `models/gguf/${modelId}.gguf` };
 
-      return sendJson(res, 200, { success: true, model, mode: started.mode });
+      const result = await runtimeManager.startModel(targetModel, hostConfig);
+      savePortableConfig({ activeModelId: modelId });
+      return sendJson(res, 200, result);
     }
 
     if (method === 'POST' && pathname === '/api/runtime/stop') {
@@ -291,6 +459,27 @@ const server = http.createServer(async (req, res) => {
     }
 
     // -------------------------------------------------------------
+    // Image Generation Studio APIs (outputs saved to USB outputs/)
+    // -------------------------------------------------------------
+    if (method === 'GET' && pathname === '/api/image/gallery') {
+      const files = fs.existsSync(outputsDir) ? fs.readdirSync(outputsDir) : [];
+      const imageFiles = files
+        .filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f))
+        .map(f => {
+          const stat = fs.statSync(path.join(outputsDir, f));
+          return {
+            filename: f,
+            url: `/outputs/${f}`,
+            createdAt: stat.mtimeMs,
+            sizeBytes: stat.size,
+          };
+        })
+        .sort((a, b) => b.createdAt - a.createdAt);
+
+      return sendJson(res, 200, { gallery: imageFiles });
+    }
+
+    // -------------------------------------------------------------
     // Conversations APIs
     // -------------------------------------------------------------
     if (method === 'GET' && pathname === '/api/conversations') {
@@ -321,33 +510,6 @@ const server = http.createServer(async (req, res) => {
       const id = pathname.replace('/api/conversations/', '');
       deleteConversation(id);
       return sendJson(res, 200, { success: true });
-    }
-
-    // -------------------------------------------------------------
-    // Terminal APIs
-    // -------------------------------------------------------------
-    if (method === 'GET' && pathname === '/api/terminal/history') {
-      return sendJson(res, 200, getTerminalHistory(100));
-    }
-
-    if (method === 'POST' && pathname === '/api/terminal/command') {
-      const body = await parseBody(req);
-      if (!body.command) return sendJson(res, 400, { error: 'command is required' });
-
-      const id = 'term-' + Date.now();
-      const prompt = `You are Nexyris Terminal AI. Provide the exact command, explanation, and flags for: ${body.command}`;
-      let output = '';
-
-      await runtimeManager.streamChat(
-        [{ role: 'user', content: prompt }],
-        {},
-        (t) => { output += t.text; },
-        () => {},
-        (err) => { output = `Error: ${err.message}`; }
-      );
-
-      const saved = addTerminalCommand(id, body.command, output, body.modelId);
-      return sendJson(res, 200, saved);
     }
 
     // -------------------------------------------------------------
@@ -392,6 +554,19 @@ const server = http.createServer(async (req, res) => {
     }
 
     // -------------------------------------------------------------
+    // Static Outputs Server (/outputs/...)
+    // -------------------------------------------------------------
+    if (pathname.startsWith('/outputs/')) {
+      const filename = path.basename(pathname);
+      const filePath = path.join(outputsDir, filename);
+      if (fs.existsSync(filePath)) {
+        const ext = path.extname(filePath).toLowerCase();
+        res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
+        return fs.createReadStream(filePath).pipe(res);
+      }
+    }
+
+    // -------------------------------------------------------------
     // Static Frontend File Server
     // -------------------------------------------------------------
     const distDir = path.join(APPLICATION_ROOT, 'dist');
@@ -413,13 +588,15 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 404, { error: 'Not Found' });
   } catch (err) {
     console.error('Server error on', pathname, err);
-    sendJson(res, 500, { error: err.message });
+    if (!res.headersSent) {
+      sendJson(res, 500, { error: err.message });
+    }
   }
 });
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`====================================================`);
-  console.log(`🚀 Nexyris Local running at: http://127.0.0.1:${PORT}`);
-  console.log(`📁 Portable Root: ${APPLICATION_ROOT}`);
+  console.log(`🚀 Nexyris Local Studio running at: http://127.0.0.1:${PORT}`);
+  console.log(`📁 Portable USB Root: ${APPLICATION_ROOT}`);
   console.log(`====================================================`);
 });

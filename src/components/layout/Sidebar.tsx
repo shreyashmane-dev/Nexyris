@@ -30,8 +30,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const navItems: Array<{ id: AppMode; label: string; icon: React.ReactNode; badge?: number }> = [
     { id: 'chat', label: 'Chat', icon: <MessageSquare size={18} /> },
-    { id: 'terminal', label: 'Terminal AI', icon: <Terminal size={18} /> },
+    { id: 'terminal', label: 'Terminal', icon: <Terminal size={18} /> },
     { id: 'code', label: 'Code Assistant', icon: <Code2 size={18} /> },
+    { id: 'image', label: 'Image Studio', icon: <Cpu size={18} color="#ec4899" /> },
     { id: 'models', label: 'Model Library', icon: <Cpu size={18} /> },
     { id: 'downloads', label: 'Downloads', icon: <Download size={18} />, badge: activeDownloadsCount },
     { id: 'diagnostics', label: 'Diagnostics', icon: <Activity size={18} /> },
@@ -197,8 +198,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)' }}>
             <HardDrive size={13} color="#94a3b8" />
-            <span>{storage?.isRemovable ? 'USB Drive' : 'Host Storage'}</span>
-            <span style={{ color: 'var(--text-muted)' }}>({storage?.driveLetter || 'D:'})</span>
+            <span>{storage?.isRemovable ? 'USB Drive' : 'Storage Drive'}</span>
+            <span style={{ color: 'var(--text-muted)' }}>({storage?.driveLetter || 'USB:'})</span>
           </div>
           <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--status-ready)' }}>
             {storage ? `${storage.freeGB} GB free` : 'Checking...'}

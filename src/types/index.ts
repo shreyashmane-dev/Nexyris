@@ -1,4 +1,4 @@
-export type AppMode = 'chat' | 'terminal' | 'code' | 'models' | 'downloads' | 'diagnostics' | 'settings';
+export type AppMode = 'chat' | 'terminal' | 'code' | 'image' | 'models' | 'downloads' | 'diagnostics' | 'settings';
 
 export interface StorageInfo {
   rootPath: string;
