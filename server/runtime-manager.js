@@ -113,7 +113,9 @@ class RuntimeManager {
   }
 
   /**
-   * Installs the portable llama-server binary onto the USB drive (offline-first)
+   * Installs the portable llama-server binary onto the USB drive
+   * Attempts network connection up to 5 times. If net doesn't connect within 5 attempts,
+   * seamlessly falls back to the pre-bundled local offline package stored in the GitHub repository.
    */
   async installPortableEngine(onProgress) {
     const isWindows = process.platform === 'win32';
@@ -124,74 +126,141 @@ class RuntimeManager {
       throw new Error('Automated portable engine is tailored for Windows x64. On Linux/Mac please install llama.cpp or Ollama.');
     }
 
-    // 1. First Priority: Check for pre-placed offline folder in runtime/windows/llama
-    const bundledDir = path.join(APPLICATION_ROOT, 'runtime', 'windows', 'llama');
-    const bundledServer = path.join(bundledDir, 'llama-server.exe');
-    if (fs.existsSync(bundledServer)) {
-      if (onProgress) onProgress({ status: 'extracting', message: 'Copying pre-bundled offline llama.cpp engine to USB bin/...' });
-      const copyCmd = `powershell -NoProfile -Command "Copy-Item -Path '${bundledDir}\\*' -Destination '${binDir}' -Recurse -Force"`;
-      try {
-        await execAsync(copyCmd);
-        const binaryPath = path.join(binDir, 'llama-server.exe');
+    const binaryPath = path.join(binDir, 'llama-server.exe');
+    if (fs.existsSync(binaryPath)) {
+      return binaryPath;
+    }
+
+    // Helper to extract/copy the pre-bundled local offline engine stored in the repository
+    const useLocalBundledEngine = async () => {
+      // Priority 1: Direct uncompressed offline folder in repository (runtime/windows/llama)
+      const bundledDir = path.join(APPLICATION_ROOT, 'runtime', 'windows', 'llama');
+      const bundledServer = path.join(bundledDir, 'llama-server.exe');
+      if (fs.existsSync(bundledServer)) {
+        if (onProgress) onProgress({ status: 'extracting', message: 'Restoring offline llama.cpp engine from repository to bin/...' });
+        const copyCmd = `powershell -NoProfile -Command "Copy-Item -Path '${bundledDir}\\*' -Destination '${binDir}' -Recurse -Force"`;
+        try {
+          await execAsync(copyCmd);
+          if (fs.existsSync(binaryPath)) {
+            return binaryPath;
+          }
+        } catch (e) {}
+      }
+
+      // Priority 2: Pre-bundled offline zip archive in repository (runtime/windows/llama-portable.zip)
+      const bundledZip = path.join(APPLICATION_ROOT, 'runtime', 'windows', 'llama-portable.zip');
+      if (fs.existsSync(bundledZip)) {
+        if (onProgress) onProgress({ status: 'extracting', message: 'Extracting pre-bundled offline package from repository to bin/...' });
+        const extractCmd = `powershell -NoProfile -Command "Expand-Archive -Path '${bundledZip}' -DestinationPath '${binDir}' -Force"`;
+        await execAsync(extractCmd);
         if (fs.existsSync(binaryPath)) {
           return binaryPath;
         }
-      } catch (e) {}
-    }
-
-    // 2. Second Priority: Check for offline pre-bundled zip in runtime/windows/
-    const bundledZip = path.join(APPLICATION_ROOT, 'runtime', 'windows', 'llama-portable.zip');
-    if (fs.existsSync(bundledZip)) {
-      if (onProgress) onProgress({ status: 'extracting', message: 'Extracting pre-bundled offline llama.cpp engine to USB bin/...' });
-      const extractCmd = `powershell -NoProfile -Command "Expand-Archive -Path '${bundledZip}' -DestinationPath '${binDir}' -Force"`;
-      await execAsync(extractCmd);
-      const binaryPath = path.join(binDir, 'llama-server.exe');
-      if (fs.existsSync(binaryPath)) {
-        return binaryPath;
       }
-    }
 
-    // 2. Fallback to internet download only if bundled zip is missing
+      throw new Error('Could not locate local bundled engine in repository (runtime/windows/llama or runtime/windows/llama-portable.zip)');
+    };
+
+    // If local offline folder already exists, we can still attempt download if requested,
+    // but the user specified: attempt network up to 5 times; if net didn't connect, use local package from GitHub!
     const downloadUrl = 'https://github.com/ggml-org/llama.cpp/releases/download/b3500/llama-b3500-bin-win-avx2-x64.zip';
     const tempZip = path.join(binDir, 'llama-temp.zip');
 
-    if (onProgress) onProgress({ status: 'downloading', message: 'Downloading portable llama.cpp engine to USB (~16 MB)...' });
+    let downloadSucceeded = false;
+    const maxAttempts = 5;
 
-    await new Promise((resolve, reject) => {
-      const req = https.get(downloadUrl, { headers: { 'User-Agent': 'Nexyris-Local' } }, (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          return https.get(res.headers.location, (redirectRes) => {
-            const fileStream = fs.createWriteStream(tempZip);
-            redirectRes.pipe(fileStream);
-            fileStream.on('finish', resolve);
-            fileStream.on('error', reject);
-          }).on('error', reject);
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        if (onProgress) {
+          onProgress({ 
+            status: 'downloading', 
+            message: `Connecting to network for engine download (Attempt ${attempt}/${maxAttempts})...` 
+          });
         }
 
-        if (res.statusCode !== 200) {
-          return reject(new Error(`Failed to download engine: HTTP ${res.statusCode}`));
+        await new Promise((resolve, reject) => {
+          const timeoutMs = 8000; // 8-second connection timeout per attempt
+          let timer = null;
+
+          const executeReq = (targetUrl) => {
+            const client = targetUrl.startsWith('https') ? https : http;
+            const req = client.get(targetUrl, { 
+              headers: { 'User-Agent': 'Nexyris-Local' },
+              timeout: timeoutMs
+            }, (res) => {
+              if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                return executeReq(res.headers.location);
+              }
+
+              if (res.statusCode !== 200) {
+                clearTimeout(timer);
+                return reject(new Error(`Failed to download engine: HTTP ${res.statusCode}`));
+              }
+
+              const fileStream = fs.createWriteStream(tempZip);
+              res.pipe(fileStream);
+              fileStream.on('finish', () => {
+                clearTimeout(timer);
+                resolve();
+              });
+              fileStream.on('error', (err) => {
+                clearTimeout(timer);
+                reject(err);
+              });
+            });
+
+            req.on('timeout', () => {
+              req.destroy(new Error(`Network timeout on attempt ${attempt}`));
+            });
+
+            req.on('error', (err) => {
+              clearTimeout(timer);
+              reject(err);
+            });
+
+            timer = setTimeout(() => {
+              req.destroy(new Error(`Connection timed out on attempt ${attempt}`));
+            }, timeoutMs);
+          };
+
+          executeReq(downloadUrl);
+        });
+
+        // If download succeeded, extract into bin/
+        if (onProgress) onProgress({ status: 'extracting', message: 'Extracting downloaded engine to bin/...' });
+        const extractCmd = `powershell -NoProfile -Command "Expand-Archive -Path '${tempZip}' -DestinationPath '${binDir}' -Force"`;
+        await execAsync(extractCmd);
+        if (fs.existsSync(tempZip)) fs.unlinkSync(tempZip);
+
+        if (fs.existsSync(binaryPath)) {
+          downloadSucceeded = true;
+          return binaryPath;
         }
+      } catch (err) {
+        if (fs.existsSync(tempZip)) {
+          try { fs.unlinkSync(tempZip); } catch (e) {}
+        }
+        if (attempt < maxAttempts) {
+          if (onProgress) {
+            onProgress({ 
+              status: 'retry', 
+              message: `Attempt ${attempt}/${maxAttempts} failed: ${err.message}. Retrying in 1s...` 
+            });
+          }
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+    }
 
-        const fileStream = fs.createWriteStream(tempZip);
-        res.pipe(fileStream);
-        fileStream.on('finish', resolve);
-        fileStream.on('error', reject);
-      });
-
-      req.on('error', reject);
-    });
-
-    if (onProgress) onProgress({ status: 'extracting', message: 'Extracting engine to USB bin/ directory...' });
-
-    // Extract using PowerShell
-    const extractCmd = `powershell -NoProfile -Command "Expand-Archive -Path '${tempZip}' -DestinationPath '${binDir}' -Force"`;
-    await execAsync(extractCmd);
-
-    if (fs.existsSync(tempZip)) fs.unlinkSync(tempZip);
-
-    const binaryPath = path.join(binDir, 'llama-server.exe');
-    if (!fs.existsSync(binaryPath)) {
-      throw new Error('Extraction completed but llama-server.exe was not found in bin/');
+    // If network did not connect after 5 attempts, fall back to repository local package
+    if (!downloadSucceeded) {
+      if (onProgress) {
+        onProgress({ 
+          status: 'fallback', 
+          message: `Network did not connect after ${maxAttempts} attempts. Using local offline engine stored in repository...` 
+        });
+      }
+      return await useLocalBundledEngine();
     }
 
     return binaryPath;

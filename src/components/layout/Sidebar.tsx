@@ -10,6 +10,9 @@ interface SidebarProps {
   modelsCount?: number;
   onOpenShutdown: () => void;
   onNewChat?: () => void;
+  activeConvId?: string | null;
+  onSelectConversation?: (id: string) => void;
+  refreshTrigger?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -20,12 +23,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   modelsCount = 4,
   onOpenShutdown,
   onNewChat,
+  activeConvId,
+  onSelectConversation,
+  refreshTrigger,
 }) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
   useEffect(() => {
     loadRecentChats();
-  }, [currentMode]);
+  }, [currentMode, activeConvId, refreshTrigger]);
 
   const loadRecentChats = async () => {
     try {
@@ -39,9 +45,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       onNewChat();
     } else {
       try {
-        await createConversation('New Chat');
+        const newC = await createConversation('New Chat');
+        if (onSelectConversation) {
+          onSelectConversation(newC.id);
+        }
         onSelectMode('chat');
-        loadRecentChats();
+        await loadRecentChats();
       } catch (e) {}
     }
   };
@@ -94,14 +103,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 No conversations yet
               </div>
             ) : (
-              conversations.map((c, index) => {
-                const isSelected = currentMode === 'chat' && index === 0;
+              conversations.map((c) => {
+                const isSelected = currentMode === 'chat' && activeConvId === c.id;
                 return (
                   <div 
                     key={c.id} 
-                    onClick={() => onSelectMode('chat')}
+                    onClick={() => {
+                      if (onSelectConversation) {
+                        onSelectConversation(c.id);
+                      } else {
+                        onSelectMode('chat');
+                      }
+                    }}
                     className={`flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer group transition-colors ${
-                      isSelected ? 'bg-surface-container text-on-surface' : 'hover:bg-surface-container-high text-on-surface'
+                      isSelected ? 'bg-surface-container text-on-surface font-semibold' : 'hover:bg-surface-container-high text-on-surface'
                     }`}
                   >
                     <div className="flex items-center gap-2 truncate">

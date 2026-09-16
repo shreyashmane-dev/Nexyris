@@ -29,6 +29,13 @@ test('Offline Engine Bundling & Model Size Estimation Tests', async (t) => {
     assert.ok(engine.type === 'llama-server' || engine.type === 'ollama', `Engine type should be valid, got: ${engine.type}`);
   });
 
+  await t.test('installPortableEngine resolves local engine from repository package', async () => {
+    const bin = await runtimeManager.installPortableEngine();
+    assert.ok(bin, 'installPortableEngine must return binary path');
+    assert.ok(fs.existsSync(bin), `Binary at ${bin} must exist on disk`);
+    assert.ok(bin.includes('llama-server'), 'Binary should be llama-server');
+  });
+
   await t.test('estimateModelSizeGB correctly calculates model sizes in GB', () => {
     assert.strictEqual(estimateModelSizeGB('SmolLM2-135M-Instruct-GGUF'), 0.2);
     assert.strictEqual(estimateModelSizeGB('Llama-3.2-1B-Instruct-GGUF'), 1.0);

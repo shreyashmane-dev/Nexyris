@@ -19,6 +19,9 @@ interface ChatViewProps {
   onNavigateToModels?: () => void;
   onStopModel?: () => void;
   onRefreshModels?: () => void;
+  activeConvId?: string | null;
+  setActiveConvId?: (id: string | null) => void;
+  newChatTrigger?: number;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({ 
@@ -27,10 +30,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
   models, 
   onNavigateToModels,
   onStopModel,
-  onRefreshModels
+  onRefreshModels,
+  activeConvId: propActiveConvId,
+  setActiveConvId: propSetActiveConvId,
+  newChatTrigger,
 }) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [internalConvId, setInternalConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputPrompt, setInputPrompt] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -39,6 +45,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const activeConvId = propActiveConvId !== undefined ? propActiveConvId : internalConvId;
+  const changeActiveConvId = (id: string | null) => {
+    if (propSetActiveConvId) propSetActiveConvId(id);
+    setInternalConvId(id);
+  };
+
   // Hugging Face online discover state when no models are installed
   const [hfCatalog, setHfCatalog] = useState<ModelItem[]>([]);
   const [downloadingModelId, setDownloadingModelId] = useState<string | null>(null);
@@ -46,11 +58,30 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const isFirstMount = useRef(true);
 
   useEffect(() => {
     loadConversations();
     loadLiveModels();
   }, []);
+
+  const handleStartNewChat = async () => {
+    try {
+      const activeModelId = runtimeStatus.currentModel?.id || models[0]?.id;
+      const newConv = await createConversation('New Chat', activeModelId);
+      setConversations(prev => [newConv, ...prev.filter(c => c.id !== newConv.id)]);
+      changeActiveConvId(newConv.id);
+      setMessages([]);
+      setInputPrompt('');
+      setStreamingText('');
+      setErrorMessage(null);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    } catch (e) {
+      changeActiveConvId(null);
+      setMessages([]);
+      setInputPrompt('');
+    }
+  };
 
   // Poll downloads if a download is active
   useEffect(() => {
@@ -101,7 +132,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       const list = await fetchConversations();
       setConversations(list);
       if (list.length > 0 && !activeConvId) {
-        setActiveConvId(list[0].id);
+        changeActiveConvId(list[0].id);
       }
     } catch (e) {}
   };
@@ -172,7 +203,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       const newConv = await createConversation(textToSend.slice(0, 32), activeModelId);
       setConversations([newConv, ...conversations]);
       convId = newConv.id;
-      setActiveConvId(convId);
+      changeActiveConvId(convId);
     }
 
     setInputPrompt('');
@@ -320,17 +351,26 @@ export const ChatView: React.FC<ChatViewProps> = ({
         <div className="w-full max-w-3xl flex flex-col gap-6">
 
           {/* Conversation Context Meta Banner */}
-          {messages.length > 0 && (
+          {models.length > 0 && (
             <div className="flex items-center justify-between py-2 px-4 rounded-lg bg-surface-container-low shadow-sm border border-surface-container-highest">
               <div className="flex items-center gap-3 min-w-0">
                 <span className="font-label-telemetry text-body-sm text-secondary uppercase tracking-wider font-semibold flex-shrink-0">
                   Context Session
                 </span>
                 <span className="font-headline-md text-body-md text-on-surface truncate font-semibold">
-                  {activeConversation?.title || 'Local TCP Session'}
+                  {activeConversation?.title || (messages.length === 0 ? 'New Chat Session' : 'Local TCP Session')}
                 </span>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
+                <button
+                  onClick={handleStartNewChat}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-body-sm text-xs font-semibold transition-colors border border-surface-container-highest cursor-pointer shadow-xs"
+                  title="Start a new chat"
+                  type="button"
+                >
+                  <span className="material-symbols-outlined text-[15px] text-primary">add</span>
+                  <span>New Chat</span>
+                </button>
                 {onStopModel && (runtimeStatus.status === 'READY' || runtimeStatus.currentModel) && (
                   <button
                     onClick={onStopModel}
@@ -342,21 +382,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     <span>Stop Model</span>
                   </button>
                 )}
-                <button 
-                  className="p-1.5 rounded hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors cursor-pointer bg-transparent border-none" 
-                  title="Fork Thread" 
-                  type="button"
-                >
-                  <span className="material-symbols-outlined text-[17px]">alt_route</span>
-                </button>
-                <button 
-                  onClick={handleExportMarkdown}
-                  className="p-1.5 rounded hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors cursor-pointer bg-transparent border-none" 
-                  title="Export Markdown" 
-                  type="button"
-                >
-                  <span className="material-symbols-outlined text-[17px]">file_download</span>
-                </button>
+                {messages.length > 0 && (
+                  <button 
+                    onClick={handleExportMarkdown}
+                    className="p-1.5 rounded hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors cursor-pointer bg-transparent border-none" 
+                    title="Export Markdown" 
+                    type="button"
+                  >
+                    <span className="material-symbols-outlined text-[17px]">file_download</span>
+                  </button>
+                )}
               </div>
             </div>
           )}

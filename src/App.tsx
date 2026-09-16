@@ -53,6 +53,27 @@ export const App: React.FC = () => {
   const [showShutdownModal, setShowShutdownModal] = useState(false);
   const [isUsbDisconnected, setIsUsbDisconnected] = useState(false);
 
+  // Chat conversation state
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [newChatTrigger, setNewChatTrigger] = useState<number>(0);
+
+  const handleNewChat = () => {
+    setCurrentMode('chat');
+    setActiveConvId(null);
+    setNewChatTrigger(n => n + 1);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        handleNewChat();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   useEffect(() => {
     initApp();
 
@@ -154,7 +175,13 @@ export const App: React.FC = () => {
         activeDownloadsCount={activeDownloadsCount}
         modelsCount={models.length}
         onOpenShutdown={() => setShowShutdownModal(true)}
-        onNewChat={() => setCurrentMode('chat')}
+        onNewChat={handleNewChat}
+        activeConvId={activeConvId}
+        onSelectConversation={(id) => {
+          setActiveConvId(id);
+          setCurrentMode('chat');
+        }}
+        refreshTrigger={newChatTrigger}
       />
 
       {/* Main Workspace Frame */}
@@ -180,6 +207,9 @@ export const App: React.FC = () => {
               onNavigateToModels={() => setCurrentMode('models')}
               onStopModel={handleStopModel}
               onRefreshModels={handleRefreshModels}
+              activeConvId={activeConvId}
+              setActiveConvId={setActiveConvId}
+              newChatTrigger={newChatTrigger}
             />
           )}
 
