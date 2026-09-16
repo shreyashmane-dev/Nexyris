@@ -26,6 +26,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onSelectModel, 
   models, 
   onNavigateToModels,
+  onStopModel,
   onRefreshModels
 }) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -294,8 +295,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     <span>{copiedMsgId === `${msgId}-code-${idx}` ? 'Copied' : 'Copy Code'}</span>
                   </button>
                 </div>
-                <pre className="p-4 font-label-code text-label-code text-on-surface overflow-x-auto leading-6 m-0 bg-[#0c0c0e] text-[#dadadb]">
-                  <code>{p.code}</code>
+                <pre className="p-4 font-mono text-[13px] leading-relaxed m-0 bg-[#18181b] text-[#f4f4f5] overflow-x-auto select-text border-t border-white/10">
+                  <code className="text-[#f4f4f5] font-mono leading-relaxed">{p.code}</code>
                 </pre>
               </div>
             );
@@ -329,7 +330,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   {activeConversation?.title || 'Local TCP Session'}
                 </span>
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {onStopModel && (runtimeStatus.status === 'READY' || runtimeStatus.currentModel) && (
+                  <button
+                    onClick={onStopModel}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-body-sm text-xs font-semibold transition-colors border-none cursor-pointer shadow-xs"
+                    title="Stop running model"
+                    type="button"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">stop_circle</span>
+                    <span>Stop Model</span>
+                  </button>
+                )}
                 <button 
                   className="p-1.5 rounded hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors cursor-pointer bg-transparent border-none" 
                   title="Fork Thread" 

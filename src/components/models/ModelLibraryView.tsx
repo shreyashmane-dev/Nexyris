@@ -449,11 +449,12 @@ export const ModelLibraryView: React.FC<ModelLibraryViewProps> = ({
                     {isCurrent ? (
                       <button 
                         onClick={handleStop}
-                        className="px-3 py-1 rounded bg-surface-container text-error hover:bg-error hover:text-on-error transition-colors font-body-sm flex items-center gap-1 text-[12px] border-none cursor-pointer" 
+                        className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold transition-colors font-body-sm flex items-center gap-1.5 text-xs border-none cursor-pointer shadow-xs" 
                         type="button"
+                        title="Stop and unload model from memory"
                       >
-                        <span className="material-symbols-outlined text-[14px]">stop_circle</span>
-                        <span>Unload</span>
+                        <span className="material-symbols-outlined text-[15px]">stop_circle</span>
+                        <span>Stop Model</span>
                       </button>
                     ) : (
                       <button 

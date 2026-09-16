@@ -230,6 +230,11 @@ class RuntimeManager {
       this.isStopping = true;
       await this.stopModel();
       this.isStopping = false;
+    } else if (process.platform === 'win32') {
+      try {
+        await execAsync('taskkill /F /IM llama-server.exe');
+        await new Promise(r => setTimeout(r, 250));
+      } catch (e) {}
     }
 
     this.currentModel = modelInfo;
@@ -262,7 +267,7 @@ class RuntimeManager {
       ];
 
       try {
-        let stderrBuffer = '';
+        let combinedLogs = '';
         const engineBinDir = path.dirname(engine.path);
         const childEnv = {
           ...process.env,
@@ -272,39 +277,45 @@ class RuntimeManager {
           TMPDIR: PATHS.temp,
         };
 
-        this.process = spawn(engine.path, args, {
+        const childProc = spawn(engine.path, args, {
           cwd: APPLICATION_ROOT,
           env: childEnv,
           windowsHide: true,
           stdio: ['ignore', 'pipe', 'pipe'],
         });
 
-        this.process.on('error', (err) => {
-          if (!this.isStopping) {
+        this.process = childProc;
+
+        childProc.on('error', (err) => {
+          if (!this.isStopping && !childProc._killedIntentionally) {
             this.setStatus('ERROR', `Engine process error: ${err.message}`);
           }
         });
 
-        this.process.stdout.on('data', (d) => {
+        childProc.stdout.on('data', (d) => {
           const out = d.toString();
+          combinedLogs = (combinedLogs + out).slice(-3000);
           if (out.includes('HTTP server listening') || out.includes('model loaded') || out.includes('all slots are idle')) {
             this.setStatus('READY');
           }
         });
 
-        this.process.stderr.on('data', (d) => {
+        childProc.stderr.on('data', (d) => {
           const err = d.toString();
-          stderrBuffer = (stderrBuffer + err).slice(-2000);
+          combinedLogs = (combinedLogs + err).slice(-3000);
           if (err.includes('HTTP server listening') || err.includes('model loaded') || err.includes('all slots are idle')) {
             this.setStatus('READY');
           }
         });
 
-        this.process.on('exit', (code, signal) => {
-          this.process = null;
-          if (!this.isStopping && this.status !== 'STOPPED' && this.status !== 'READY') {
-            const cleanErr = stderrBuffer.trim().split('\n').slice(-3).join(' ') || (signal ? `signal ${signal}` : 'process terminated');
-            this.setStatus('ERROR', `llama-server exited with code ${code ?? signal ?? 'none'} (${cleanErr})`);
+        childProc.on('exit', (code, signal) => {
+          if (childProc._killedIntentionally || this.isStopping) return;
+          if (this.process === childProc) {
+            this.process = null;
+            if (this.status !== 'STOPPED' && this.status !== 'READY') {
+              const cleanErr = combinedLogs.trim().split('\n').filter(l => l.trim() && !l.includes('llm_load_print_meta')).slice(-2).join(' ') || (signal ? `signal ${signal}` : 'process terminated');
+              this.setStatus('ERROR', `llama-server exited with code ${code ?? signal ?? 'null'} (${cleanErr})`);
+            }
           }
         });
 
@@ -475,14 +486,28 @@ class RuntimeManager {
   async stopModel() {
     this.isStopping = true;
     if (this.process) {
+      const proc = this.process;
+      proc._killedIntentionally = true;
+      this.process = null;
       try {
-        this.process.kill('SIGTERM');
-        await new Promise(r => setTimeout(r, 600));
-        if (this.process) {
-          this.process.kill('SIGKILL');
+        if (process.platform === 'win32' && proc.pid) {
+          try {
+            await execAsync(`taskkill /F /T /PID ${proc.pid}`);
+          } catch (e) {
+            proc.kill('SIGKILL');
+          }
+        } else {
+          proc.kill('SIGTERM');
+          await new Promise(r => setTimeout(r, 300));
+          proc.kill('SIGKILL');
         }
       } catch (e) {}
-      this.process = null;
+    }
+    // Also terminate any stray llama-server processes on Windows
+    if (process.platform === 'win32') {
+      try {
+        await execAsync('taskkill /F /IM llama-server.exe');
+      } catch (e) {}
     }
     this.currentModel = null;
     this.setStatus('STOPPED');

@@ -230,13 +230,15 @@ export const TopBar: React.FC<TopBarProps> = ({
           </span>
         </div>
 
-        {isRunning && onStopModel && (
+        {(isRunning || isStarting || activeModel) && onStopModel && (
           <button
             onClick={onStopModel}
-            title="Unload model from RAM"
-            className="px-2 py-0.5 rounded text-[10px] font-label-telemetry bg-surface-container hover:bg-error-container text-secondary hover:text-error transition-colors border-none cursor-pointer"
+            title="Stop running model and free system memory"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-semibold bg-red-600 hover:bg-red-700 text-white transition-all border-none cursor-pointer shadow-xs ml-2"
+            type="button"
           >
-            Unload
+            <span className="material-symbols-outlined text-[15px]">stop_circle</span>
+            <span>Stop Model</span>
           </button>
         )}
       </div>

@@ -92,22 +92,31 @@ export const CodeAssistantView: React.FC = () => {
   };
 
   return (
-    <div style={{ flex: 1, display: 'flex', height: 'calc(100vh - 60px)', backgroundColor: 'var(--bg-app)' }}>
+    <div className="flex-1 flex h-[calc(100vh-3.5rem)] bg-surface overflow-hidden">
       {/* Left Project / Files list */}
-      <div style={{
-        width: '220px',
-        backgroundColor: 'rgba(14, 20, 36, 0.85)',
-        borderRight: '1px solid var(--border-subtle)',
-        display: 'flex',
-        flexDirection: 'column',
-      }}>
-        <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+      <div className="w-56 bg-surface-container-low border-r border-surface-container-highest flex flex-col flex-shrink-0">
+        <div className="px-4 py-3 border-b border-surface-container-highest flex items-center justify-between">
+          <span className="text-[11px] font-bold text-secondary uppercase tracking-wider font-label-telemetry">
             Projects ({projects.length})
           </span>
+          <button
+            onClick={async () => {
+              const name = prompt('Enter project name:');
+              if (!name) return;
+              const newP = await saveCodeProject({ name, files: [{ name: 'main.py', content: '# Python code\nprint("Hello Nexyris")\n' }] });
+              setProjects([...projects, newP]);
+              setActiveProject(newP);
+              setCodeContent(newP.files[0]?.content || '');
+            }}
+            className="p-1 rounded hover:bg-surface-container text-secondary hover:text-primary transition-colors border-none bg-transparent cursor-pointer"
+            title="New Project"
+            type="button"
+          >
+            <Plus size={15} />
+          </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {projects.map((proj) => {
             const isActive = activeProject?.id === proj.id;
             return (
@@ -118,24 +127,14 @@ export const CodeAssistantView: React.FC = () => {
                   setActiveFileIndex(0);
                   setCodeContent(proj.files[0]?.content || '');
                 }}
-                style={{
-                  padding: '8px 10px',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: isActive ? 'rgba(220, 38, 38, 0.08)' : 'transparent',
-                  color: isActive ? '#dc2626' : 'var(--text-secondary)',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                  marginBottom: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
+                className={`px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all flex items-center gap-2 ${
+                  isActive 
+                    ? 'bg-primary text-white font-semibold shadow-xs' 
+                    : 'text-on-surface hover:bg-surface-container'
+                }`}
               >
-                <FileCode size={14} />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {proj.name}
-                </span>
+                <FileCode size={14} className={isActive ? 'text-white' : 'text-secondary'} />
+                <span className="truncate flex-1">{proj.name}</span>
               </div>
             );
           })}
@@ -143,98 +142,100 @@ export const CodeAssistantView: React.FC = () => {
       </div>
 
       {/* Center: Code Editor */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border-subtle)' }}>
+      <div className="flex-1 flex flex-col border-r border-surface-container-highest bg-[#18181b]">
         {/* Editor Tab bar */}
-        <div style={{
-          padding: '8px 16px',
-          backgroundColor: '#070a12',
-          borderBottom: '1px solid var(--border-subtle)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 600, color: '#f8fafc' }}>
+        <div className="px-4 py-2.5 bg-[#27272a] border-b border-neutral-700 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+            <span className="font-mono text-xs font-semibold text-[#f4f4f5]">
               {activeProject?.files[activeFileIndex]?.name || 'scratchpad.py'}
             </span>
           </div>
 
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => handleAiAction('explain')}>
-              <Sparkles size={12} color="#dc2626" />
+          <div className="flex items-center gap-2">
+            <button 
+              className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#3f3f46] hover:bg-primary text-white text-xs font-medium transition-colors border-none cursor-pointer" 
+              onClick={() => handleAiAction('explain')}
+              type="button"
+            >
+              <Sparkles size={12} className="text-red-400" />
               <span>Explain</span>
             </button>
-            <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => handleAiAction('refactor')}>
-              <Wrench size={12} color="#34d399" />
+            <button 
+              className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#3f3f46] hover:bg-primary text-white text-xs font-medium transition-colors border-none cursor-pointer" 
+              onClick={() => handleAiAction('refactor')}
+              type="button"
+            >
+              <Wrench size={12} className="text-emerald-400" />
               <span>Refactor</span>
             </button>
-            <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => handleAiAction('debug')}>
-              <Bug size={12} color="#f87171" />
+            <button 
+              className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#3f3f46] hover:bg-primary text-white text-xs font-medium transition-colors border-none cursor-pointer" 
+              onClick={() => handleAiAction('debug')}
+              type="button"
+            >
+              <Bug size={12} className="text-amber-400" />
               <span>Debug</span>
             </button>
-            <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => handleAiAction('tests')}>
-              <span>Unit Tests</span>
+            <button 
+              className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#3f3f46] hover:bg-primary text-white text-xs font-medium transition-colors border-none cursor-pointer" 
+              onClick={() => handleAiAction('tests')}
+              type="button"
+            >
+              <span>Tests</span>
             </button>
           </div>
         </div>
 
-        {/* Textarea code editor */}
-        <textarea
-          value={codeContent}
-          onChange={(e) => handleSaveCode(e.target.value)}
-          style={{
-            flex: 1,
-            width: '100%',
-            backgroundColor: '#060810',
-            color: '#e2e8f0',
-            fontFamily: 'JetBrains Mono, monospace',
-            fontSize: '13px',
-            lineHeight: 1.6,
-            padding: '16px',
-            border: 'none',
-            resize: 'none',
-            outline: 'none',
-            tabSize: 4,
-          }}
-          spellCheck={false}
-        />
+        {/* Textarea code editor - High Contrast Visible Code */}
+        <div className="flex-1 relative flex bg-[#18181b]">
+          <textarea
+            value={codeContent}
+            onChange={(e) => handleSaveCode(e.target.value)}
+            className="flex-1 w-full p-4 bg-[#18181b] text-[#f4f4f5] font-mono text-[13px] leading-relaxed border-none resize-none outline-none selection:bg-primary/40 focus:outline-none"
+            style={{ color: '#f4f4f5', backgroundColor: '#18181b' }}
+            spellCheck={false}
+          />
+        </div>
       </div>
 
       {/* Right: AI Output Panel */}
-      <div style={{ width: '380px', display: 'flex', flexDirection: 'column', backgroundColor: 'rgba(11, 16, 28, 0.95)' }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600 }}>
-            <Sparkles size={14} color="#dc2626" />
+      <div className="w-96 flex flex-col bg-surface-container-lowest border-l border-surface-container-highest flex-shrink-0">
+        <div className="px-4 py-2.5 border-b border-surface-container-highest flex items-center justify-between bg-surface-container-low flex-shrink-0">
+          <div className="flex items-center gap-2 text-on-surface font-semibold text-xs">
+            <Sparkles size={14} className="text-primary" />
             <span>AI Code Analysis</span>
           </div>
 
           {aiResponse && (
             <button
-              className="btn btn-secondary"
-              style={{ padding: '3px 8px', fontSize: '11px' }}
+              className="flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-medium transition-colors border-none cursor-pointer"
               onClick={() => {
                 navigator.clipboard.writeText(aiResponse);
                 setCopied(true);
                 setTimeout(() => setCopied(false), 2000);
               }}
+              type="button"
             >
-              {copied ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+              {copied ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
               <span>{copied ? 'Copied' : 'Copy'}</span>
             </button>
           )}
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px', fontSize: '13px', lineHeight: 1.6, color: '#e2e8f0', whiteSpace: 'pre-wrap' }}>
+        <div className="flex-1 overflow-y-auto p-4 text-xs font-mono leading-relaxed text-on-surface space-y-3">
           {aiResponse ? (
-            <div>{aiResponse}</div>
+            <div className="whitespace-pre-wrap leading-relaxed text-on-surface">
+              {aiResponse}
+            </div>
           ) : isGenerating ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#dc2626' }}>
-              <span className="pulse-dot">⚡</span>
-              <span>Generating code insights locally...</span>
+            <div className="flex items-center gap-2 text-primary font-medium p-4 bg-primary/5 rounded-lg border border-primary/20">
+              <span className="animate-spin text-sm">⚡</span>
+              <span>Generating code analysis via local model...</span>
             </div>
           ) : (
-            <div style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '40px', fontSize: '12.5px' }}>
-              Select an action above (Explain, Refactor, Debug, Unit Tests) to analyze your code with the local model.
+            <div className="text-secondary text-center mt-12 text-xs leading-relaxed max-w-xs mx-auto">
+              Select an action above (<strong className="text-on-surface">Explain</strong>, <strong className="text-on-surface">Refactor</strong>, <strong className="text-on-surface">Debug</strong>, <strong className="text-on-surface">Tests</strong>) to analyze your code with the local model.
             </div>
           )}
         </div>
