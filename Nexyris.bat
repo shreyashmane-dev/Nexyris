@@ -57,32 +57,21 @@ set "PORT=38192"
 :: Start server in background with explicit working directory on USB drive
 start /B "" /D "%NEXYRIS_ROOT%" node "%NEXYRIS_ROOT%\server\index.js"
 
-echo [3/3] Waiting for server to initialize...
-set /a attempts=0
-:wait_server
-timeout /t 1 /nobreak >nul
-set /a attempts+=1
-powershell -NoProfile -Command "(New-Object System.Net.Sockets.TcpClient).Connect('127.0.0.1', %PORT%)" >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    if !attempts! LSS 15 (
-        goto wait_server
-    )
-)
+echo [3/3] Launching Nexyris Studio...
+timeout /t 2 /nobreak >nul
 
-:: Attempt to open in clean application window mode (Chrome / Edge) with isolated USB profile
 set "APP_URL=http://127.0.0.1:%PORT%"
-set "USB_BROWSER_DATA=%NEXYRIS_ROOT%\data\browser-profile"
 
 if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" (
-    start "" "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" --user-data-dir="%USB_BROWSER_DATA%" --app="%APP_URL%"
+    start "" "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" --app="%APP_URL%"
     goto finish
 )
 if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" (
-    start "" "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" --user-data-dir="%USB_BROWSER_DATA%" --app="%APP_URL%"
+    start "" "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" --app="%APP_URL%"
     goto finish
 )
 if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" (
-    start "" "%ProgramFiles%\Google\Chrome\Application\chrome.exe" --user-data-dir="%USB_BROWSER_DATA%" --app="%APP_URL%"
+    start "" "%ProgramFiles%\Google\Chrome\Application\chrome.exe" --app="%APP_URL%"
     goto finish
 )
 

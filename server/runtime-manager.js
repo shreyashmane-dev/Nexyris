@@ -20,6 +20,7 @@ class RuntimeManager {
     this.listeners = new Set();
     this.errorDetails = null;
     this.engineType = null; // 'llama-server' | 'ollama' | 'native-fallback' | null
+    this.isStopping = false;
     this.lastMetrics = {
       tokensGenerated: 0,
       speedTokPerSec: 0,
@@ -158,18 +159,39 @@ class RuntimeManager {
    * Starts a model using llama-server, Ollama, or fallback engine
    */
   async startModel(modelInfo, hostConfig = {}) {
-    if (this.process) {
-      await this.stopModel();
-    }
-
-    this.currentModel = modelInfo;
-    this.setStatus('STARTING');
-
     const modelPath = resolvePath(modelInfo.path || modelInfo.relativePath);
     if (!fs.existsSync(modelPath)) {
       this.setStatus('ERROR', `Model file not found at ${modelPath}`);
       throw new Error(`Model file not found at ${modelPath}`);
     }
+
+    // Check if llama-server is already running on this.port with this exact model
+    try {
+      const healthRes = await fetch(`http://${this.host}:${this.port}/health`, { signal: AbortSignal.timeout(600) });
+      if (healthRes.ok) {
+        const modelsRes = await fetch(`http://${this.host}:${this.port}/v1/models`, { signal: AbortSignal.timeout(600) });
+        if (modelsRes.ok) {
+          const data = await modelsRes.json();
+          const loadedId = data.data?.[0]?.id || '';
+          const targetName = path.basename(modelPath);
+          if (loadedId.includes(targetName)) {
+            this.currentModel = modelInfo;
+            this.engineType = 'llama-server';
+            this.setStatus('READY');
+            return { success: true, engine: 'llama-server' };
+          }
+        }
+      }
+    } catch (e) {}
+
+    if (this.process) {
+      this.isStopping = true;
+      await this.stopModel();
+      this.isStopping = false;
+    }
+
+    this.currentModel = modelInfo;
+    this.setStatus('STARTING');
 
     const engine = await this.findEngine();
 
@@ -199,17 +221,26 @@ class RuntimeManager {
 
       try {
         let stderrBuffer = '';
+        const engineBinDir = path.dirname(engine.path);
+        const childEnv = {
+          ...process.env,
+          PATH: `${engineBinDir};${process.env.PATH || ''}`,
+          TEMP: PATHS.temp,
+          TMP: PATHS.temp,
+          TMPDIR: PATHS.temp,
+        };
 
         this.process = spawn(engine.path, args, {
           cwd: APPLICATION_ROOT,
-          env: {
-            ...process.env,
-            TEMP: PATHS.temp,
-            TMP: PATHS.temp,
-            TMPDIR: PATHS.temp,
-          },
+          env: childEnv,
           windowsHide: true,
           stdio: ['ignore', 'pipe', 'pipe'],
+        });
+
+        this.process.on('error', (err) => {
+          if (!this.isStopping) {
+            this.setStatus('ERROR', `Engine process error: ${err.message}`);
+          }
         });
 
         this.process.stdout.on('data', (d) => {
@@ -227,11 +258,11 @@ class RuntimeManager {
           }
         });
 
-        this.process.on('exit', (code) => {
+        this.process.on('exit', (code, signal) => {
           this.process = null;
-          if (this.status !== 'STOPPED') {
-            const cleanErr = stderrBuffer.trim().split('\n').slice(-3).join(' ') || 'unknown error';
-            this.setStatus('ERROR', `llama-server exited with code ${code} (${cleanErr})`);
+          if (!this.isStopping && this.status !== 'STOPPED' && this.status !== 'READY') {
+            const cleanErr = stderrBuffer.trim().split('\n').slice(-3).join(' ') || (signal ? `signal ${signal}` : 'process terminated');
+            this.setStatus('ERROR', `llama-server exited with code ${code ?? signal ?? 'none'} (${cleanErr})`);
           }
         });
 
@@ -290,7 +321,7 @@ class RuntimeManager {
     let tokenCount = 0;
 
     // Connect to llama-server OpenAI-compatible API
-    if (this.engineType === 'llama-server' && this.process) {
+    if (this.engineType === 'llama-server') {
       try {
         const payload = {
           messages,
@@ -400,6 +431,7 @@ class RuntimeManager {
   }
 
   async stopModel() {
+    this.isStopping = true;
     if (this.process) {
       try {
         this.process.kill('SIGTERM');
@@ -412,6 +444,7 @@ class RuntimeManager {
     }
     this.currentModel = null;
     this.setStatus('STOPPED');
+    this.isStopping = false;
     return { success: true };
   }
 
