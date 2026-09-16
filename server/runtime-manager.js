@@ -56,7 +56,7 @@ class RuntimeManager {
       path.join(PATHS.runtime, binaryName),
       path.join(APPLICATION_ROOT, 'app', 'llm-backend', 'win', 'cuda', binaryName),
       path.join(APPLICATION_ROOT, 'app', 'llm-backend', 'win', 'vulkan', binaryName),
-      path.join(APPLICATION_ROOT, 'app', 'llm-backend', 'win', 'cpu', binaryName),
+      path.join(APPLICATION_ROOT, 'runtime', 'windows', 'llama', binaryName),
       path.join(APPLICATION_ROOT, 'ollama', isWindows ? 'ollama.exe' : 'ollama'),
     ];
 
@@ -64,6 +64,21 @@ class RuntimeManager {
       if (fs.existsSync(p)) {
         return { type: p.includes('ollama') ? 'ollama' : 'llama-server', path: p };
       }
+    }
+
+    // Check if offline bundled zip exists in runtime/windows/
+    const bundledZip = path.join(APPLICATION_ROOT, 'runtime', 'windows', 'llama-portable.zip');
+    if (fs.existsSync(bundledZip)) {
+      try {
+        const binDir = path.join(APPLICATION_ROOT, 'bin');
+        if (!fs.existsSync(binDir)) fs.mkdirSync(binDir, { recursive: true });
+        const extractCmd = `powershell -NoProfile -Command "Expand-Archive -Path '${bundledZip}' -DestinationPath '${binDir}' -Force"`;
+        await execAsync(extractCmd);
+        const extractedBinary = path.join(binDir, binaryName);
+        if (fs.existsSync(extractedBinary)) {
+          return { type: 'llama-server', path: extractedBinary };
+        }
+      } catch (e) {}
     }
 
     // Check if host has Ollama running on default port 11434
@@ -98,7 +113,7 @@ class RuntimeManager {
   }
 
   /**
-   * Installs the portable llama-server binary onto the USB drive
+   * Installs the portable llama-server binary onto the USB drive (offline-first)
    */
   async installPortableEngine(onProgress) {
     const isWindows = process.platform === 'win32';
@@ -106,10 +121,37 @@ class RuntimeManager {
     if (!fs.existsSync(binDir)) fs.mkdirSync(binDir, { recursive: true });
 
     if (!isWindows) {
-      throw new Error('Automated portable engine download is currently tailored for Windows x64. On Linux/Mac please install llama.cpp or Ollama.');
+      throw new Error('Automated portable engine is tailored for Windows x64. On Linux/Mac please install llama.cpp or Ollama.');
     }
 
-    // Official prebuilt standalone binary release from llama.cpp
+    // 1. First Priority: Check for pre-placed offline folder in runtime/windows/llama
+    const bundledDir = path.join(APPLICATION_ROOT, 'runtime', 'windows', 'llama');
+    const bundledServer = path.join(bundledDir, 'llama-server.exe');
+    if (fs.existsSync(bundledServer)) {
+      if (onProgress) onProgress({ status: 'extracting', message: 'Copying pre-bundled offline llama.cpp engine to USB bin/...' });
+      const copyCmd = `powershell -NoProfile -Command "Copy-Item -Path '${bundledDir}\\*' -Destination '${binDir}' -Recurse -Force"`;
+      try {
+        await execAsync(copyCmd);
+        const binaryPath = path.join(binDir, 'llama-server.exe');
+        if (fs.existsSync(binaryPath)) {
+          return binaryPath;
+        }
+      } catch (e) {}
+    }
+
+    // 2. Second Priority: Check for offline pre-bundled zip in runtime/windows/
+    const bundledZip = path.join(APPLICATION_ROOT, 'runtime', 'windows', 'llama-portable.zip');
+    if (fs.existsSync(bundledZip)) {
+      if (onProgress) onProgress({ status: 'extracting', message: 'Extracting pre-bundled offline llama.cpp engine to USB bin/...' });
+      const extractCmd = `powershell -NoProfile -Command "Expand-Archive -Path '${bundledZip}' -DestinationPath '${binDir}' -Force"`;
+      await execAsync(extractCmd);
+      const binaryPath = path.join(binDir, 'llama-server.exe');
+      if (fs.existsSync(binaryPath)) {
+        return binaryPath;
+      }
+    }
+
+    // 2. Fallback to internet download only if bundled zip is missing
     const downloadUrl = 'https://github.com/ggml-org/llama.cpp/releases/download/b3500/llama-b3500-bin-win-avx2-x64.zip';
     const tempZip = path.join(binDir, 'llama-temp.zip');
 

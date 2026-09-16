@@ -92,17 +92,55 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({
 
     setIsSubmitting(true);
     try {
-      const repo = hfRepoInput.trim();
-      const modelName = repo.split('/').pop() || repo;
-      const cleanFile = `${repo.replace(/\//g, '_')}.${quantSelect}.gguf`;
+      let repo = hfRepoInput.trim();
+      let targetFilename = '';
+      let downloadUrl = '';
+      const estimatedGB = quantSelect === 'Q8_0' ? 8.5 : (quantSelect === 'Q5_K_M' ? 5.2 : (quantSelect === 'BF16' ? 14.8 : (quantSelect === 'Q2_K' ? 1.8 : 4.5)));
+
+      // 1. Direct file link provided (e.g. https://huggingface.co/.../resolve/main/model.gguf)
+      if (repo.startsWith('http://') || repo.startsWith('https://')) {
+        downloadUrl = repo;
+        targetFilename = repo.split('/').pop()?.split('?')[0] || 'model.gguf';
+      } else {
+        // 2. Repo ID provided (e.g. bartowski/Llama-3.2-1B-Instruct-GGUF)
+        repo = repo.replace(/^https?:\/\/huggingface\.co\//i, '').replace(/\/tree\/.*$/i, '').trim();
+        const modelName = repo.split('/').pop() || repo;
+
+        // Query backend for authentic repo files matching this quantization
+        try {
+          const filesRes = await fetch(`/api/catalog/model-files?repoId=${encodeURIComponent(repo)}`);
+          if (filesRes.ok) {
+            const data = await filesRes.json();
+            const ggufs: Array<{ filename: string; downloadUrl: string }> = data.files || [];
+            if (ggufs.length > 0) {
+              const matched = ggufs.find(f => f.filename.toLowerCase().includes(quantSelect.toLowerCase())) ||
+                ggufs.find(f => f.filename.toLowerCase().includes('q4_k_m')) ||
+                ggufs[0];
+              if (matched) {
+                targetFilename = matched.filename;
+                downloadUrl = matched.downloadUrl;
+              }
+            }
+          }
+        } catch (e) {}
+
+        // Fallback to standard Hugging Face model naming format
+        if (!downloadUrl) {
+          const baseName = modelName.replace(/-GGUF$/i, '');
+          targetFilename = `${baseName}-${quantSelect}.gguf`;
+          downloadUrl = `https://huggingface.co/${repo}/resolve/main/${targetFilename}`;
+        }
+      }
+
+      const cleanDisplayName = (targetFilename || repo).replace('.gguf', '').replace(/[-_]/g, ' ');
 
       await queueDownload({
         id: repo,
-        name: `${modelName} (${quantSelect})`,
-        filename: cleanFile,
-        url: `https://huggingface.co/${repo}/resolve/main/${cleanFile}`,
+        name: `${cleanDisplayName} (${quantSelect})`,
+        filename: targetFilename || `${repo.replace(/\//g, '_')}-${quantSelect}.gguf`,
+        url: downloadUrl,
         category: 'Instruct',
-        expectedSize: 2.5 * 1024 ** 3,
+        expectedSize: Math.round(estimatedGB * 1024 ** 3),
       });
 
       setSubmitSuccess(true);
@@ -127,6 +165,7 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({
   };
 
   const totalInstalledGB = installedModels.reduce((acc, m) => acc + (m.sizeGB || 0), 0);
+  const currentEstGB = quantSelect === 'Q8_0' ? 8.5 : (quantSelect === 'Q5_K_M' ? 5.2 : (quantSelect === 'BF16' ? 14.8 : (quantSelect === 'Q2_K' ? 1.8 : 4.5)));
 
   return (
     <div className="flex-1 flex flex-col h-full bg-surface overflow-y-auto">
@@ -339,8 +378,8 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({
                       <div className="flex flex-col min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-body-md font-semibold text-on-surface truncate">{task.name}</span>
-                          <span className="px-1.5 py-0.5 bg-surface-container-high rounded text-secondary font-label-telemetry text-label-telemetry">
-                            {formatBytes(task.totalBytes)}
+                          <span className="px-1.5 py-0.5 bg-primary/10 border border-primary/20 text-primary font-bold rounded font-label-telemetry text-label-telemetry">
+                            {task.totalBytes > 0 ? formatBytes(task.totalBytes) : (task.expectedSize ? formatBytes(task.expectedSize) : '~4.5 GB')}
                           </span>
                         </div>
                         <span className="font-label-code text-secondary text-label-code truncate">{task.id}</span>
@@ -475,9 +514,14 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({
 
                 {/* Quant Selector */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="font-label-telemetry text-on-surface text-label-telemetry uppercase font-semibold" htmlFor="quant-select">
-                    Target Quantization
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="font-label-telemetry text-on-surface text-label-telemetry uppercase font-semibold" htmlFor="quant-select">
+                      Target Quantization
+                    </label>
+                    <span className="font-label-telemetry text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded text-[11px] font-bold">
+                      ESTIMATED: ~{currentEstGB} GB
+                    </span>
+                  </div>
                   <div className="relative flex items-center">
                     <select 
                       id="quant-select"
@@ -485,11 +529,11 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({
                       onChange={(e) => setQuantSelect(e.target.value)}
                       className="w-full bg-surface-container-low text-on-surface font-label-code text-label-code px-3 py-2.5 rounded-lg appearance-none focus:outline-none focus:bg-surface-container-lowest transition-colors cursor-pointer border border-surface-container-highest" 
                     >
-                      <option value="Q4_K_M">Q4_K_M · Balanced Performance (Recommended)</option>
-                      <option value="Q5_K_M">Q5_K_M · Higher Precision (+1.2 GB)</option>
-                      <option value="Q8_0">Q8_0 · Near Native F16 (+4.8 GB)</option>
-                      <option value="Q2_K">Q2_K · Minimal Footprint / Low RAM</option>
-                      <option value="BF16">BF16 · Full Unquantized Precision</option>
+                      <option value="Q4_K_M">Q4_K_M · Balanced Performance (~4.5 GB) (Recommended)</option>
+                      <option value="Q5_K_M">Q5_K_M · Higher Precision (~5.2 GB)</option>
+                      <option value="Q8_0">Q8_0 · Near Native F16 (~8.5 GB)</option>
+                      <option value="Q2_K">Q2_K · Minimal Footprint / Low RAM (~1.8 GB)</option>
+                      <option value="BF16">BF16 · Full Unquantized Precision (~14.8 GB)</option>
                     </select>
                     <span className="material-symbols-outlined absolute right-3 pointer-events-none text-secondary text-[18px]">expand_more</span>
                   </div>
@@ -562,7 +606,7 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({
                   ) : (
                     <>
                       <span className="material-symbols-outlined text-[18px]">cloud_download</span>
-                      <span>Start Download</span>
+                      <span>Start Download (~{currentEstGB} GB)</span>
                     </>
                   )}
                 </button>

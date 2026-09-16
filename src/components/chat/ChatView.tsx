@@ -122,13 +122,36 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const handleDownloadModel = async (model: any) => {
     try {
       setDownloadingModelId(model.id);
+      let targetFilename = model.filename;
+      let downloadUrl = model.downloadUrl;
+
+      // Query repo files to get authentic filename if needed
+      try {
+        const filesRes = await fetch(`/api/catalog/model-files?repoId=${encodeURIComponent(model.id)}`);
+        if (filesRes.ok) {
+          const data = await filesRes.json();
+          const ggufs: Array<{ filename: string; downloadUrl: string }> = data.files || [];
+          if (ggufs.length > 0) {
+            const matched = ggufs.find(f => f.filename.toLowerCase().includes('q4_k_m')) ||
+              ggufs.find(f => f.filename.toLowerCase().includes('q4_0')) ||
+              ggufs[0];
+            if (matched) {
+              targetFilename = matched.filename;
+              downloadUrl = matched.downloadUrl;
+            }
+          }
+        }
+      } catch (e) {}
+
+      const sizeGB = model.fileSizeGB || (model.fileSizeBytes ? model.fileSizeBytes / (1024 ** 3) : 1.2);
+
       await queueDownload({
         id: model.id,
         name: model.name,
-        filename: model.filename || `${model.id.replace(/\//g, '_')}.gguf`,
-        url: model.downloadUrl,
+        filename: targetFilename || model.filename || `${model.id.replace(/\//g, '_')}.gguf`,
+        url: downloadUrl || model.downloadUrl,
         category: model.category,
-        expectedSize: model.fileSizeBytes || (model.fileSizeGB ? model.fileSizeGB * 1024 ** 3 : 0),
+        expectedSize: model.fileSizeBytes || Math.round(sizeGB * 1024 ** 3),
       });
     } catch (err: any) {
       alert('Download error: ' + err.message);
@@ -370,29 +393,33 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   { id: 'bartowski/Qwen2.5-0.5B-Instruct-GGUF', name: 'Qwen 2.5 0.5B', fileSizeGB: 0.5, description: 'Micro-footprint model for ultra-low RAM.' },
                   { id: 'bartowski/SmolLM2-135M-Instruct-GGUF', name: 'SmolLM2 135M', fileSizeGB: 0.2, description: 'Instant response test model, runs everywhere.' },
                   { id: 'bartowski/Phi-3.5-mini-instruct-GGUF', name: 'Phi 3.5 Mini 3.8B', fileSizeGB: 2.2, description: 'High reasoning lightweight Microsoft model.' }
-                ]).map((m: any) => (
-                  <div key={m.id} className="bg-surface-container-lowest p-5 rounded-xl border border-surface-container-highest shadow-sm text-left flex flex-col justify-between">
-                    <div>
-                      <div className="flex justify-between items-start mb-1">
-                        <span className="font-headline-md text-body-md font-semibold text-on-surface">{m.name}</span>
-                        <span className="font-label-telemetry text-secondary bg-surface-container px-1.5 py-0.2 rounded text-[11px]">
-                          ~{m.fileSizeGB} GB
-                        </span>
+                ]).map((m: any) => {
+                  const sizeGB = m.fileSizeGB || (m.fileSizeBytes ? m.fileSizeBytes / (1024 ** 3) : 1.2);
+                  const sizeStr = `~${Number(sizeGB).toFixed(1)} GB`;
+                  return (
+                    <div key={m.id} className="bg-surface-container-lowest p-5 rounded-xl border border-surface-container-highest shadow-sm text-left flex flex-col justify-between">
+                      <div>
+                        <div className="flex justify-between items-start mb-1">
+                          <span className="font-headline-md text-body-md font-semibold text-on-surface">{m.name}</span>
+                          <span className="font-label-telemetry text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded text-[11px] font-bold">
+                            {sizeStr}
+                          </span>
+                        </div>
+                        <p className="font-body-sm text-secondary line-clamp-2 mb-4">
+                          {m.description || 'Optimized quantized weight for local CPU/GPU offloading.'}
+                        </p>
                       </div>
-                      <p className="font-body-sm text-secondary line-clamp-2 mb-4">
-                        {m.description || 'Optimized quantized weight for local CPU/GPU offloading.'}
-                      </p>
+                      <button 
+                        onClick={() => handleDownloadModel(m)}
+                        disabled={downloadingModelId === m.id}
+                        className="w-full py-2 bg-primary hover:bg-primary-container text-on-primary rounded-lg font-body-sm font-semibold transition-colors flex items-center justify-center gap-1.5 border-none cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">download</span>
+                        <span>Download to USB ({sizeStr})</span>
+                      </button>
                     </div>
-                    <button 
-                      onClick={() => handleDownloadModel(m)}
-                      disabled={downloadingModelId === m.id}
-                      className="w-full py-2 bg-primary hover:bg-primary-container text-on-primary rounded-lg font-body-sm font-semibold transition-colors flex items-center justify-center gap-1.5 border-none cursor-pointer"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">download</span>
-                      <span>Download to USB</span>
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ) : messages.length === 0 ? (

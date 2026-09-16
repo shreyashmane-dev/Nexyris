@@ -36,6 +36,18 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
+:: Ensure offline pre-bundled llama.cpp engine is unpacked into bin (Zero Internet Required)
+if not exist "%NEXYRIS_ROOT%\bin\llama-server.exe" (
+    if not exist "%NEXYRIS_ROOT%\bin" mkdir "%NEXYRIS_ROOT%\bin"
+    if exist "%NEXYRIS_ROOT%\runtime\windows\llama\llama-server.exe" (
+        echo [Offline Setup] Copying pre-bundled llama.cpp engine to bin...
+        copy /Y "%NEXYRIS_ROOT%\runtime\windows\llama\*.*" "%NEXYRIS_ROOT%\bin\" >nul 2>&1
+    ) else if exist "%NEXYRIS_ROOT%\runtime\windows\llama-portable.zip" (
+        echo [Offline Setup] Unzipping pre-bundled llama.cpp engine to bin...
+        powershell -NoProfile -Command "Expand-Archive -Path '%NEXYRIS_ROOT%\runtime\windows\llama-portable.zip' -DestinationPath '%NEXYRIS_ROOT%\bin' -Force"
+    )
+)
+
 echo.
 echo =======================================================
 echo Select Interface Mode:

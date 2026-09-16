@@ -5,6 +5,7 @@ import http from 'node:http';
 import { PATHS, toRelativePath } from './dynamic-root.js';
 import { parseGgufHeader } from './gguf-parser.js';
 import { checkRequiredSpace } from './storage.js';
+import { fetchRepoFiles } from './providers/hf-catalog.js';
 
 function toSafeFileId(id) {
   return String(id).replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -66,8 +67,25 @@ class DownloadManager {
    * Queues a model or engine binary for download
    */
   async queueDownload(modelMetadata) {
-    const { id, name, url, expectedSize, filename, category } = modelMetadata;
-    const targetFilename = filename || `${id}.gguf`;
+    let { id, name, url, expectedSize, filename, category } = modelMetadata;
+
+    // Automatically resolve authentic Hugging Face file URL if repo ID provided or guessed placeholder
+    if (id && id.includes('/') && (!url || url.includes('_GGUF.') || !url.toLowerCase().endsWith('.gguf'))) {
+      try {
+        const repoFiles = await fetchRepoFiles(id);
+        if (repoFiles && repoFiles.length > 0) {
+          const matched = repoFiles.find(f => f.filename.toLowerCase().includes('q4_k_m')) ||
+            repoFiles.find(f => f.filename.toLowerCase().includes('q4_0')) ||
+            repoFiles[0];
+          if (matched) {
+            filename = matched.filename;
+            url = matched.downloadUrl;
+          }
+        }
+      } catch (e) {}
+    }
+
+    const targetFilename = filename || `${id.replace(/\//g, '_')}.gguf`;
     const finalDir = category === 'image' 
       ? path.join(PATHS.root, 'models', 'image')
       : (category === 'speech' ? path.join(PATHS.root, 'models', 'speech') : PATHS.modelsGguf);
@@ -215,7 +233,7 @@ class DownloadManager {
         timeout: 60000,
       };
 
-      const req = client.get(options, (res) => {
+      const req = client.get(options, async (res) => {
         // Follow redirects (301, 302, 303, 307, 308)
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           redirectHops++;
@@ -234,9 +252,29 @@ class DownloadManager {
         }
 
         if (res.statusCode !== 200 && res.statusCode !== 206) {
+          // If 404, check if repo files can be auto-resolved
+          if (res.statusCode === 404 && task.id && task.id.includes('/') && !task._hasResolvedRepo) {
+            task._hasResolvedRepo = true;
+            try {
+              const files = await fetchRepoFiles(task.id);
+              if (files && files.length > 0) {
+                const matched = files.find(f => f.filename.toLowerCase().includes('q4_k_m')) ||
+                  files.find(f => f.filename.toLowerCase().includes('q4_0')) ||
+                  files[0];
+                if (matched && matched.downloadUrl !== task.url) {
+                  console.log(`[DownloadManager] Auto-resolved 404 to authentic Hugging Face file: ${matched.filename}`);
+                  task.filename = matched.filename;
+                  task.url = matched.downloadUrl;
+                  res.resume();
+                  return executeRequest(matched.downloadUrl);
+                }
+              }
+            } catch (e) {}
+          }
+
           clearInterval(speedInterval);
           task.status = 'error';
-          task.error = `Server returned HTTP ${res.statusCode}: ${res.statusMessage}`;
+          task.error = `Model file not found on Hugging Face (HTTP ${res.statusCode}). Please verify repository or file name.`;
           this.activeDownload = null;
           this.notify('error', task);
           this.processQueue();

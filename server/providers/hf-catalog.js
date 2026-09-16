@@ -224,6 +224,41 @@ export async function getLiveHuggingFaceModels(forceRefresh = false) {
 }
 
 /**
+ * Estimates realistic file size in GB based on model parameters and quantization
+ */
+export function estimateModelSizeGB(nameOrId = '', quant = 'Q4_K_M') {
+  const text = (nameOrId || '').toLowerCase();
+  let baseGB = 4.5; // default 7B/8B
+
+  if (text.includes('135m')) baseGB = 0.2;
+  else if (text.includes('0.5b') || text.includes('500m')) baseGB = 0.4;
+  else if (text.includes('1b') || text.includes('1.5b')) baseGB = 1.0;
+  else if (text.includes('2b') || text.includes('3b') || text.includes('3.2b') || text.includes('3.8b')) baseGB = 2.2;
+  else if (text.includes('7b')) baseGB = 4.2;
+  else if (text.includes('8b')) baseGB = 4.9;
+  else if (text.includes('9b')) baseGB = 5.5;
+  else if (text.includes('11b') || text.includes('12b')) baseGB = 7.0;
+  else if (text.includes('14b')) baseGB = 8.5;
+  else if (text.includes('27b') || text.includes('32b') || text.includes('34b')) baseGB = 19.0;
+  else if (text.includes('70b') || text.includes('72b')) baseGB = 42.0;
+
+  // Extract quant if present in filename
+  let effectiveQuant = quant || 'Q4_K_M';
+  const matchQuant = text.match(/(q[0-9]_[a-z0-9_]+|bf16|f16|f32)/i);
+  if (matchQuant) effectiveQuant = matchQuant[1].toUpperCase();
+
+  const q = effectiveQuant.toUpperCase();
+  if (q.includes('Q2')) return Math.round(baseGB * 0.5 * 10) / 10;
+  if (q.includes('Q3')) return Math.round(baseGB * 0.75 * 10) / 10;
+  if (q.includes('Q5')) return Math.round(baseGB * 1.2 * 10) / 10;
+  if (q.includes('Q6')) return Math.round(baseGB * 1.4 * 10) / 10;
+  if (q.includes('Q8')) return Math.round(baseGB * 1.8 * 10) / 10;
+  if (q.includes('16')) return Math.round(baseGB * 3.5 * 10) / 10;
+
+  return Math.round(baseGB * 10) / 10;
+}
+
+/**
  * Searches Hugging Face Hub live API for any community model query
  */
 export async function searchHuggingFace(query = 'gguf', limit = 25) {
@@ -242,6 +277,7 @@ export async function searchHuggingFace(query = 'gguf', limit = 25) {
       const repoName = item.id.split('/')[1] || item.id;
       const cleanName = repoName.replace(/-GGUF$/i, '').replace(/_/g, ' ');
       const defaultFilename = `${repoName.replace(/-GGUF$/i, '')}-Q4_K_M.gguf`;
+      const sizeGB = estimateModelSizeGB(item.id, 'Q4_K_M');
 
       return {
         id: item.id,
@@ -252,7 +288,8 @@ export async function searchHuggingFace(query = 'gguf', limit = 25) {
         tags: item.tags || [],
         format: 'GGUF',
         quantization: 'Q4_K_M',
-        fileSizeGB: 4.5,
+        fileSizeGB: sizeGB,
+        fileSizeBytes: Math.round(sizeGB * 1024 ** 3),
         filename: defaultFilename,
         downloadUrl: `https://huggingface.co/${item.id}/resolve/main/${defaultFilename}`,
         description: `Direct from Hugging Face Hub (${item.downloads?.toLocaleString() || 0} downloads).`,
@@ -279,10 +316,15 @@ export async function fetchRepoFiles(repoId) {
     const data = await res.json();
     const files = (data.siblings || [])
       .filter(s => s.rfilename.toLowerCase().endsWith('.gguf'))
-      .map(s => ({
-        filename: s.rfilename,
-        downloadUrl: `https://huggingface.co/${repoId}/resolve/main/${s.rfilename}`,
-      }));
+      .map(s => {
+        const sizeGB = estimateModelSizeGB(s.rfilename);
+        return {
+          filename: s.rfilename,
+          downloadUrl: `https://huggingface.co/${repoId}/resolve/main/${s.rfilename}`,
+          sizeGB,
+          fileSizeBytes: Math.round(sizeGB * 1024 ** 3),
+        };
+      });
 
     return files;
   } catch (e) {

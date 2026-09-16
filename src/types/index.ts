@@ -98,6 +98,7 @@ export interface DownloadTask {
   id: string;
   name: string;
   filename?: string;
+  expectedSize?: number;
   downloadedBytes: number;
   totalBytes: number;
   speedMBs: number;

@@ -104,15 +104,38 @@ export const ModelLibraryView: React.FC<ModelLibraryViewProps> = ({
 
   const handleDownloadHfModel = async (m: any) => {
     try {
+      let targetFilename = m.filename;
+      let downloadUrl = m.downloadUrl;
+
+      // Query repo files to get authentic filename if needed
+      try {
+        const filesRes = await fetch(`/api/catalog/model-files?repoId=${encodeURIComponent(m.id)}`);
+        if (filesRes.ok) {
+          const data = await filesRes.json();
+          const ggufs: Array<{ filename: string; downloadUrl: string }> = data.files || [];
+          if (ggufs.length > 0) {
+            const matched = ggufs.find(f => f.filename.toLowerCase().includes('q4_k_m')) ||
+              ggufs.find(f => f.filename.toLowerCase().includes('q4_0')) ||
+              ggufs[0];
+            if (matched) {
+              targetFilename = matched.filename;
+              downloadUrl = matched.downloadUrl;
+            }
+          }
+        }
+      } catch (e) {}
+
+      const sizeGB = m.fileSizeGB || (m.fileSizeBytes ? m.fileSizeBytes / (1024 ** 3) : 4.5);
+
       await queueDownload({
         id: m.id,
         name: m.name,
-        filename: m.filename || `${m.id.replace(/\//g, '_')}.gguf`,
-        url: m.downloadUrl,
+        filename: targetFilename || m.filename || `${m.id.replace(/\//g, '_')}.gguf`,
+        url: downloadUrl || m.downloadUrl,
         category: m.category,
-        expectedSize: m.fileSizeBytes || (m.fileSizeGB ? m.fileSizeGB * 1024 ** 3 : 0),
+        expectedSize: m.fileSizeBytes || Math.round(sizeGB * 1024 ** 3),
       });
-      alert(`Download queued for ${m.name}! Check the Downloads tab.`);
+      alert(`Download queued for ${m.name} (~${sizeGB.toFixed(1)} GB)! Check the Downloads tab.`);
       setShowHfModal(false);
     } catch (err: any) {
       alert('Download error: ' + err.message);
@@ -556,22 +579,36 @@ export const ModelLibraryView: React.FC<ModelLibraryViewProps> = ({
                   No Hugging Face models found. Try a different search query.
                 </div>
               ) : (
-                hfResults.map((m: any) => (
-                  <div key={m.id} className="p-4 rounded-xl bg-surface-container-low border border-surface-container-highest flex justify-between items-center gap-4">
-                    <div className="min-w-0">
-                      <div className="font-headline-md text-body-md font-semibold text-on-surface">{m.name}</div>
-                      <div className="text-[11px] font-label-telemetry text-secondary mt-0.5">{m.id}</div>
-                      <p className="text-[12px] text-secondary line-clamp-1 mt-1">{m.description}</p>
+                hfResults.map((m: any) => {
+                  const sizeGB = m.fileSizeGB || (m.fileSizeBytes ? m.fileSizeBytes / (1024 ** 3) : 4.5);
+                  const sizeStr = `~${Number(sizeGB).toFixed(1)} GB`;
+                  return (
+                    <div key={m.id} className="p-4 rounded-xl bg-surface-container-low border border-surface-container-highest flex justify-between items-center gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-headline-md text-body-md font-semibold text-on-surface">{m.name}</span>
+                          <span className="font-label-telemetry text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded text-[11px] font-bold">
+                            {sizeStr}
+                          </span>
+                          {m.quantization && (
+                            <span className="font-label-code text-secondary bg-surface-container px-1.5 py-0.2 rounded text-[10px]">
+                              {m.quantization}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] font-label-telemetry text-secondary mt-0.5">{m.id}</div>
+                        <p className="text-[12px] text-secondary line-clamp-1 mt-1">{m.description}</p>
+                      </div>
+                      <button 
+                        onClick={() => handleDownloadHfModel(m)}
+                        className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-body-sm font-semibold flex items-center gap-1.5 flex-shrink-0 border-none cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">download</span>
+                        <span>Download ({sizeStr})</span>
+                      </button>
                     </div>
-                    <button 
-                      onClick={() => handleDownloadHfModel(m)}
-                      className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-container text-on-primary font-body-sm font-semibold flex items-center gap-1.5 flex-shrink-0 border-none cursor-pointer"
-                    >
-                      <span className="material-symbols-outlined text-[15px]">download</span>
-                      <span>Download</span>
-                    </button>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
