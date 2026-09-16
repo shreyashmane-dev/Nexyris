@@ -340,3 +340,77 @@ export async function updateHostConfig(updates: any) {
   });
   return res.json();
 }
+
+// MCP (Model Context Protocol) API
+export interface McpServerInfo {
+  id?: string;
+  name: string;
+  type: 'stdio' | 'sse' | 'http';
+  command?: string;
+  args?: string[] | string;
+  url?: string;
+  env?: Record<string, string>;
+  enabled?: boolean;
+}
+
+export interface McpStatusResponse {
+  builtIn: {
+    name: string;
+    version: string;
+    protocolVersion: string;
+    status: string;
+    transport: string[];
+    endpoint: string;
+    stdioCommand: string;
+    tools: Array<{ name: string; description: string; inputSchema: any }>;
+    resources: Array<{ uri: string; name: string; description: string }>;
+    prompts: Array<{ name: string; description: string }>;
+  };
+  externalServers: McpServerInfo[];
+}
+
+export async function fetchMcpServers(): Promise<McpStatusResponse> {
+  const res = await fetch(`${API_BASE}/mcp/servers`);
+  return res.json();
+}
+
+export async function addMcpServer(server: McpServerInfo): Promise<McpServerInfo> {
+  const res = await fetch(`${API_BASE}/mcp/servers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(server),
+  });
+  return res.json();
+}
+
+export async function deleteMcpServer(id: string): Promise<{ success: boolean; id: string }> {
+  const res = await fetch(`${API_BASE}/mcp/servers/${id}`, {
+    method: 'DELETE',
+  });
+  return res.json();
+}
+
+export async function callMcpRpc(method: string, params: any = {}, id = 1): Promise<any> {
+  const res = await fetch(`${API_BASE}/mcp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+  });
+  return res.json();
+}
+
+// Real Code Execution
+export async function executeCode(code: string, language: string, filename?: string): Promise<{
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  elapsedMs: number;
+  output: string;
+}> {
+  const res = await fetch(`${API_BASE}/code/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, language, filename }),
+  });
+  return res.json();
+}

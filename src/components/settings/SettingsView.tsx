@@ -1,14 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Shield, Sliders, HardDrive, Palette, Save, Check } from 'lucide-react';
+import { Settings, Shield, Sliders, HardDrive, Palette, Save, Check, Server, Plus, Trash2, Copy, RefreshCw, Terminal, Radio } from 'lucide-react';
 import { HardwareInfo } from '../../types';
-import { fetchConfig, updatePortableConfig, updateHostConfig } from '../../lib/api';
+import { 
+  fetchConfig, 
+  updatePortableConfig, 
+  updateHostConfig, 
+  fetchMcpServers, 
+  addMcpServer, 
+  deleteMcpServer, 
+  McpStatusResponse, 
+  McpServerInfo 
+} from '../../lib/api';
 
 interface SettingsViewProps {
   hardware: HardwareInfo | null;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ hardware }) => {
-  const [activeTab, setActiveTab] = useState<'performance' | 'general' | 'storage' | 'privacy'>('performance');
+  const [activeTab, setActiveTab] = useState<'performance' | 'general' | 'storage' | 'privacy' | 'mcp'>('performance');
   const [threads, setThreads] = useState(4);
   const [gpuLayers, setGpuLayers] = useState(0);
   const [contextSize, setContextSize] = useState(4096);
@@ -17,9 +26,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ hardware }) => {
   const [defaultApp, setDefaultApp] = useState('chat');
   const [savedMessage, setSavedMessage] = useState(false);
 
+  // MCP State
+  const [mcpData, setMcpData] = useState<McpStatusResponse | null>(null);
+  const [loadingMcp, setLoadingMcp] = useState(false);
+  const [showAddServer, setShowAddServer] = useState(false);
+  const [copiedMcpConfig, setCopiedMcpConfig] = useState(false);
+  const [newServerName, setNewServerName] = useState('');
+  const [newServerType, setNewServerType] = useState<'stdio' | 'sse'>('stdio');
+  const [newServerCommand, setNewServerCommand] = useState('');
+  const [newServerArgs, setNewServerArgs] = useState('');
+  const [newServerUrl, setNewServerUrl] = useState('');
+
   useEffect(() => {
     loadSettings();
+    loadMcpData();
   }, [hardware]);
+
+  const loadMcpData = async () => {
+    try {
+      setLoadingMcp(true);
+      const data = await fetchMcpServers();
+      setMcpData(data);
+    } catch (e) {
+    } finally {
+      setLoadingMcp(false);
+    }
+  };
 
   const loadSettings = async () => {
     try {
@@ -86,6 +118,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ hardware }) => {
         {[
           { id: 'performance', label: 'AI Performance & Hardware Tuning' },
           { id: 'general', label: 'General & Startup' },
+          { id: 'mcp', label: 'Model Context Protocol (MCP)' },
           { id: 'storage', label: 'Storage & Portability' },
           { id: 'privacy', label: 'Privacy & Offline Mode' },
         ].map((tab) => {
@@ -242,6 +275,308 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ hardware }) => {
               <option value="code">Code Assistant</option>
               <option value="models">Model Library</option>
             </select>
+          </div>
+        </div>
+      )}
+
+      {/* Storage Tab */}
+      {/* MCP (Model Context Protocol) Tab */}
+      {activeTab === 'mcp' && (
+        <div style={{ maxWidth: '780px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Built-in MCP Server Card */}
+          <div className="glass-panel" style={{ padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                  <Server size={18} color="#dc2626" />
+                  <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>
+                    Nexyris Native MCP Server
+                  </h3>
+                  <span style={{ 
+                    fontSize: '11px', 
+                    fontWeight: 700, 
+                    backgroundColor: 'rgba(16, 185, 129, 0.15)', 
+                    color: '#10b981', 
+                    padding: '2px 8px', 
+                    borderRadius: '12px',
+                    border: '1px solid rgba(16, 185, 129, 0.3)'
+                  }}>
+                    ONLINE (JSON-RPC 2.0)
+                  </span>
+                </div>
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+                  Exposes local USB neural inference, GGUF model library, USB storage health, and sandboxed execution tools to any external MCP client (Claude Desktop, Cursor, Antigravity IDE, Windsurf).
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
+                  const snippet = JSON.stringify({
+                    mcpServers: {
+                      nexyris: {
+                        command: "node",
+                        args: [`${window.location.protocol}//${window.location.host}/server/mcp-server.js`]
+                      }
+                    }
+                  }, null, 2);
+                  navigator.clipboard.writeText(snippet);
+                  setCopiedMcpConfig(true);
+                  setTimeout(() => setCopiedMcpConfig(false), 2000);
+                }}
+                className="btn btn-secondary"
+                style={{ fontSize: '12px', padding: '6px 12px' }}
+                type="button"
+              >
+                {copiedMcpConfig ? <Check size={13} color="#10b981" /> : <Copy size={13} />}
+                <span>{copiedMcpConfig ? 'Config Copied' : 'Copy Client Config'}</span>
+              </button>
+            </div>
+
+            {/* Endpoints & Details */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+              <div style={{ background: 'var(--bg-app)', padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px' }}>
+                  STDIO Command (Local Transport)
+                </div>
+                <div style={{ fontSize: '12.5px', fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                  node server/mcp-server.js
+                </div>
+              </div>
+
+              <div style={{ background: 'var(--bg-app)', padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px' }}>
+                  HTTP & SSE Endpoint (Network Transport)
+                </div>
+                <div style={{ fontSize: '12.5px', fontFamily: 'monospace', color: '#dc2626' }}>
+                  http://127.0.0.1:38192/mcp
+                </div>
+              </div>
+            </div>
+
+            {/* Built-in Tools Table */}
+            <div>
+              <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>
+                Exposed MCP Tools & Resources ({mcpData?.builtIn.tools.length || 6})
+              </h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {(mcpData?.builtIn.tools || [
+                  { name: 'nexyris_chat', description: 'Real-time neural chat inference from offline GGUF weights on USB.' },
+                  { name: 'nexyris_list_models', description: 'List all verified local GGUF models on the USB pendrive.' },
+                  { name: 'nexyris_system_status', description: 'Host CPU, RAM, GPU offload capacity, and USB partition telemetry.' },
+                  { name: 'nexyris_search_history', description: 'Query conversation history and code projects in SQLite database.' },
+                  { name: 'nexyris_run_command', description: 'Execute sandboxed commands confined to the USB pendrive.' },
+                  { name: 'nexyris_execute_code', description: 'Run Python, JS, TypeScript, C++, Rust, Go code with local output capture.' },
+                ]).map((tool) => (
+                  <div 
+                    key={tool.name}
+                    style={{ 
+                      display: 'flex', 
+                      alignItems: 'baseline', 
+                      gap: '12px', 
+                      padding: '8px 12px', 
+                      borderRadius: '6px', 
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px solid var(--border-subtle)'
+                    }}
+                  >
+                    <span style={{ fontFamily: 'monospace', fontSize: '12px', fontWeight: 700, color: '#dc2626' }}>
+                      {tool.name}
+                    </span>
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      {tool.description}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* External MCP Servers Section */}
+          <div className="glass-panel" style={{ padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ fontSize: '15px', fontWeight: 700, margin: '0 0 4px 0' }}>
+                  External MCP Servers
+                </h3>
+                <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: 0 }}>
+                  Add external Model Context Protocol servers (e.g. filesystem, github, fetch, postgres) to expand tool capabilities.
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowAddServer(!showAddServer)}
+                className="btn btn-primary"
+                style={{ fontSize: '12px', padding: '6px 14px' }}
+                type="button"
+              >
+                <Plus size={14} />
+                <span>{showAddServer ? 'Cancel' : 'Add MCP Server'}</span>
+              </button>
+            </div>
+
+            {/* Add Server Form Drawer */}
+            {showAddServer && (
+              <div style={{ 
+                background: 'var(--bg-app)', 
+                padding: '16px', 
+                borderRadius: '8px', 
+                border: '1px solid var(--border-subtle)',
+                marginBottom: '18px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                <h4 style={{ fontSize: '13px', fontWeight: 700, margin: 0 }}>Register New MCP Server</h4>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                      Server Identifier
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. filesystem, github, sqlite"
+                      value={newServerName}
+                      onChange={(e) => setNewServerName(e.target.value)}
+                      style={{ width: '100%', padding: '8px 10px', fontSize: '12.5px' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                      Transport Protocol
+                    </label>
+                    <select
+                      value={newServerType}
+                      onChange={(e) => setNewServerType(e.target.value as any)}
+                      style={{ width: '100%', padding: '8px 10px', fontSize: '12.5px' }}
+                    >
+                      <option value="stdio">stdio (Local Command)</option>
+                      <option value="sse">SSE / HTTP (Remote URL)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {newServerType === 'stdio' ? (
+                  <div>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                      Executable Command
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. npx -y @modelcontextprotocol/server-filesystem D:/"
+                      value={newServerCommand}
+                      onChange={(e) => setNewServerCommand(e.target.value)}
+                      style={{ width: '100%', padding: '8px 10px', fontSize: '12.5px' }}
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                      Server URL
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="http://127.0.0.1:8000/sse"
+                      value={newServerUrl}
+                      onChange={(e) => setNewServerUrl(e.target.value)}
+                      style={{ width: '100%', padding: '8px 10px', fontSize: '12.5px' }}
+                    />
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
+                  <button 
+                    onClick={() => setShowAddServer(false)}
+                    className="btn btn-secondary"
+                    style={{ fontSize: '12px' }}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={async () => {
+                      if (!newServerName.trim()) {
+                        alert('Please enter a server identifier');
+                        return;
+                      }
+                      await addMcpServer({
+                        name: newServerName.trim(),
+                        type: newServerType,
+                        command: newServerCommand.trim(),
+                        url: newServerUrl.trim(),
+                        enabled: true,
+                      });
+                      setNewServerName('');
+                      setNewServerCommand('');
+                      setNewServerUrl('');
+                      setShowAddServer(false);
+                      await loadMcpData();
+                    }}
+                    className="btn btn-primary"
+                    style={{ fontSize: '12px' }}
+                    type="button"
+                  >
+                    Save MCP Server
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* List of Configured Servers */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {(!mcpData?.externalServers || mcpData.externalServers.length === 0) ? (
+                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                  No external MCP servers configured yet. Click "Add MCP Server" above to connect tools like Filesystem, GitHub, or SQLite.
+                </div>
+              ) : (
+                mcpData.externalServers.map((srv) => (
+                  <div
+                    key={srv.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '12px 16px',
+                      borderRadius: '8px',
+                      background: 'var(--bg-app)',
+                      border: '1px solid var(--border-subtle)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <Radio size={16} color="#10b981" />
+                      <div>
+                        <div style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {srv.name}
+                        </div>
+                        <div style={{ fontSize: '11.5px', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
+                          {srv.type === 'stdio' ? srv.command : srv.url}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '11px', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 8px', borderRadius: '10px' }}>
+                        Ready
+                      </span>
+                      <button
+                        onClick={async () => {
+                          if (srv.id) {
+                            await deleteMcpServer(srv.id);
+                            await loadMcpData();
+                          }
+                        }}
+                        style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
+                        title="Delete MCP Server"
+                        type="button"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}

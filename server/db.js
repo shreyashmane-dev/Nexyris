@@ -63,6 +63,19 @@ export function getDatabase() {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS mcp_servers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'stdio',
+      command TEXT,
+      args TEXT,
+      url TEXT,
+      env_json TEXT,
+      enabled INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   // Migration: Ensure model_id exists in messages table for multi-model history tracking
@@ -211,6 +224,54 @@ export function saveCodeProject(id, name, description, files) {
 export function deleteCodeProject(id) {
   const db = getDatabase();
   db.prepare(`DELETE FROM code_projects WHERE id = ?`).run(id);
+}
+
+// MCP Servers Helpers
+export function listMcpServers() {
+  const db = getDatabase();
+  const rows = db.prepare(`SELECT * FROM mcp_servers ORDER BY created_at DESC`).all();
+  return rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    type: r.type,
+    command: r.command,
+    args: r.args ? JSON.parse(r.args) : [],
+    url: r.url,
+    env: r.env_json ? JSON.parse(r.env_json) : {},
+    enabled: Boolean(r.enabled),
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  }));
+}
+
+export function saveMcpServer(server) {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const id = server.id || ('mcp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6));
+  const existing = db.prepare(`SELECT id FROM mcp_servers WHERE id = ?`).get(id);
+
+  const argsJson = Array.isArray(server.args) ? JSON.stringify(server.args) : (typeof server.args === 'string' ? server.args : '[]');
+  const envJson = server.env ? JSON.stringify(server.env) : '{}';
+  const enabled = server.enabled !== false ? 1 : 0;
+
+  if (existing) {
+    db.prepare(`
+      UPDATE mcp_servers SET name = ?, type = ?, command = ?, args = ?, url = ?, env_json = ?, enabled = ?, updated_at = ?
+      WHERE id = ?
+    `).run(server.name, server.type || 'stdio', server.command || '', argsJson, server.url || '', envJson, enabled, now, id);
+  } else {
+    db.prepare(`
+      INSERT INTO mcp_servers (id, name, type, command, args, url, env_json, enabled, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, server.name, server.type || 'stdio', server.command || '', argsJson, server.url || '', envJson, enabled, now, now);
+  }
+
+  return { ...server, id, updated_at: now };
+}
+
+export function deleteMcpServer(id) {
+  const db = getDatabase();
+  db.prepare(`DELETE FROM mcp_servers WHERE id = ?`).run(id);
 }
 
 export function closeDatabase() {

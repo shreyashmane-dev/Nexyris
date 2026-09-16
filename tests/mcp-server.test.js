@@ -104,4 +104,69 @@ test('Model Context Protocol (MCP) Server Tests', async (t) => {
     assert.ok(uris.includes('nexyris://models'));
     assert.ok(uris.includes('nexyris://storage'));
   });
+
+  await t.test('Executes code and handles prompts and external servers via MCP RPC', async () => {
+    const { processMcpRpcRequest } = await import('../server/mcp-server.js');
+    const { saveMcpServer, listMcpServers, deleteMcpServer } = await import('../server/db.js');
+
+    // 1. Prompts list
+    const promptsRes = await processMcpRpcRequest({
+      jsonrpc: '2.0',
+      id: 10,
+      method: 'prompts/list',
+    });
+    assert.ok(promptsRes.result.prompts.length >= 2);
+    const promptNames = promptsRes.result.prompts.map(p => p.name);
+    assert.ok(promptNames.includes('code_review'));
+    assert.ok(promptNames.includes('explain_algorithm'));
+
+    // 2. Prompts get
+    const getPromptRes = await processMcpRpcRequest({
+      jsonrpc: '2.0',
+      id: 11,
+      method: 'prompts/get',
+      params: {
+        name: 'code_review',
+        arguments: { language: 'typescript', code: 'const x: number = 10;' }
+      }
+    });
+    assert.ok(getPromptRes.result.messages[0].content.text.includes('const x: number = 10;'));
+
+    // 3. Code Execution Tool Call
+    const codeExecRes = await processMcpRpcRequest({
+      jsonrpc: '2.0',
+      id: 12,
+      method: 'tools/call',
+      params: {
+        name: 'nexyris_execute_code',
+        arguments: {
+          language: 'javascript',
+          code: 'console.log("Hello MCP Sandbox");'
+        }
+      }
+    });
+    assert.strictEqual(codeExecRes.result.isError, false);
+    assert.ok(codeExecRes.result.content[0].text.includes('Hello MCP Sandbox'));
+
+    // 4. MCP Servers Database Persistence
+    const testServer = {
+      name: 'Custom Dev Server',
+      transport: 'sse',
+      url: 'http://127.0.0.1:9099/sse',
+      command: '',
+      args: [],
+      env: {},
+    };
+    const saved = saveMcpServer(testServer);
+    assert.ok(saved.id);
+    assert.strictEqual(saved.name, 'Custom Dev Server');
+
+    const allServers = listMcpServers();
+    assert.ok(allServers.some(s => s.id === saved.id));
+
+    deleteMcpServer(saved.id);
+    const afterDelete = listMcpServers();
+    assert.ok(!afterDelete.some(s => s.id === saved.id));
+  });
 });
+

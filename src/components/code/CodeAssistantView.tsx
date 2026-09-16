@@ -13,10 +13,14 @@ import {
   FilePlus, 
   FolderPlus, 
   ArrowRight,
-  ChevronDown
+  ChevronDown,
+  Play,
+  Terminal,
+  X,
+  RotateCcw
 } from 'lucide-react';
 import { CodeProject } from '../../types';
-import { fetchCodeProjects, saveCodeProject, deleteCodeProject, streamChatCompletion } from '../../lib/api';
+import { fetchCodeProjects, saveCodeProject, deleteCodeProject, streamChatCompletion, executeCode } from '../../lib/api';
 
 interface LanguageConfig {
   id: string;
@@ -109,6 +113,15 @@ export const CodeAssistantView: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [activeAction, setActiveAction] = useState<string>('explain');
   const [appliedFeedback, setAppliedFeedback] = useState(false);
+  const [isRunningCode, setIsRunningCode] = useState(false);
+  const [showConsole, setShowConsole] = useState(false);
+  const [executionResult, setExecutionResult] = useState<{
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+    elapsedMs: number;
+    output: string;
+  } | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
@@ -356,6 +369,26 @@ ${codeContent}
       handleSaveCode(extracted);
       setAppliedFeedback(true);
       setTimeout(() => setAppliedFeedback(false), 2500);
+    }
+  };
+
+  const handleRunCode = async () => {
+    if (!codeContent.trim() || isRunningCode) return;
+    setIsRunningCode(true);
+    setShowConsole(true);
+    try {
+      const result = await executeCode(codeContent, currentLang.id, currentFile.name);
+      setExecutionResult(result);
+    } catch (err: any) {
+      setExecutionResult({
+        stdout: '',
+        stderr: err?.message || 'Failed to execute code locally.',
+        exitCode: 1,
+        elapsedMs: 0,
+        output: err?.message || 'Failed to execute code locally.',
+      });
+    } finally {
+      setIsRunningCode(false);
     }
   };
 
@@ -611,7 +644,7 @@ ${codeContent}
             </button>
           </div>
 
-          {/* Active Language Badge & AI Action Tools */}
+          {/* Active Language Badge & Run Button & AI Action Tools */}
           <div className="flex items-center gap-2">
             {/* Active Language Detection Indicator */}
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#27272a] border border-neutral-700">
@@ -620,6 +653,22 @@ ${codeContent}
                 {currentLang.name}
               </span>
             </div>
+
+            {/* Run Code Button */}
+            <button
+              onClick={handleRunCode}
+              disabled={isRunningCode}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all border-none cursor-pointer ${
+                isRunningCode
+                  ? 'bg-amber-500/20 text-amber-300 animate-pulse'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm'
+              }`}
+              title={`Execute ${currentFile.name} locally on USB`}
+              type="button"
+            >
+              <Play size={11} className={isRunningCode ? 'animate-spin' : 'fill-current'} />
+              <span>{isRunningCode ? 'Running...' : 'Run'}</span>
+            </button>
 
             {/* AI Preset Analysis Actions */}
             <div className="flex items-center gap-1.5 bg-[#27272a] p-0.5 rounded-lg border border-neutral-700">
@@ -706,6 +755,87 @@ ${codeContent}
           />
         </div>
 
+        {/* Execution Output Console Drawer */}
+        {showConsole && (
+          <div className="h-44 bg-[#0e0e10] border-t border-neutral-800 flex flex-col flex-shrink-0">
+            {/* Console Header */}
+            <div className="px-3 py-1.5 bg-[#141416] border-b border-neutral-800 flex items-center justify-between text-xs select-none">
+              <div className="flex items-center gap-2">
+                <Terminal size={12} className="text-emerald-400" />
+                <span className="font-mono text-neutral-300 text-[11px] font-semibold">Console Output</span>
+                {executionResult && (
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
+                    executionResult.exitCode === 0 
+                      ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/60' 
+                      : 'bg-rose-950 text-rose-400 border border-rose-800/60'
+                  }`}>
+                    {executionResult.exitCode === 0 ? 'EXIT 0 SUCCESS' : `EXIT ${executionResult.exitCode} ERROR`}
+                  </span>
+                )}
+                {executionResult && (
+                  <span className="text-neutral-500 text-[10px] font-mono">
+                    {executionResult.elapsedMs}ms
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setExecutionResult(null)}
+                  className="text-neutral-400 hover:text-neutral-200 text-[11px] bg-transparent border-none cursor-pointer flex items-center gap-1"
+                  type="button"
+                  title="Clear output"
+                >
+                  <RotateCcw size={11} />
+                  <span>Clear</span>
+                </button>
+                <button
+                  onClick={() => setShowConsole(false)}
+                  className="text-neutral-400 hover:text-neutral-200 bg-transparent border-none cursor-pointer p-0.5"
+                  type="button"
+                  title="Close Console"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            </div>
+
+            {/* Console Body */}
+            <div className="flex-1 p-3 font-mono text-[12px] leading-relaxed overflow-y-auto select-text text-neutral-300 bg-[#0e0e10]">
+              {isRunningCode ? (
+                <div className="flex items-center gap-2 text-amber-400">
+                  <span className="animate-spin text-sm">⠋</span>
+                  <span>Executing {currentFile.name} with local {currentLang.name} runtime...</span>
+                </div>
+              ) : executionResult ? (
+                <div className="space-y-1">
+                  <div className="text-neutral-500 text-[11px]">
+                    $ run {currentFile.name}
+                  </div>
+                  {executionResult.stdout && (
+                    <pre className="text-emerald-300 whitespace-pre-wrap m-0 font-mono">
+                      {executionResult.stdout}
+                    </pre>
+                  )}
+                  {executionResult.stderr && (
+                    <pre className="text-rose-400 whitespace-pre-wrap m-0 font-mono">
+                      {executionResult.stderr}
+                    </pre>
+                  )}
+                  {!executionResult.stdout && !executionResult.stderr && (
+                    <div className="text-neutral-500 italic">
+                      [Process completed with exit code {executionResult.exitCode} and no output]
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-neutral-500 italic text-[11px]">
+                  Click "Run" above to execute this code locally on USB or view process outputs here.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Editor Status Bar */}
         <div className="h-6 px-4 bg-[#141416] border-t border-neutral-800 flex items-center justify-between text-[11px] font-mono text-neutral-400 select-none flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -718,6 +848,16 @@ ${codeContent}
             <span>{codeContent.length} chars</span>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowConsole(prev => !prev)}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono transition-colors border-none cursor-pointer ${
+                showConsole ? 'bg-primary/20 text-primary' : 'bg-transparent text-neutral-400 hover:text-white'
+              }`}
+              type="button"
+            >
+              <Terminal size={11} />
+              <span>Console {executionResult ? (executionResult.exitCode === 0 ? '✓' : '✗') : ''}</span>
+            </button>
             <span className="text-secondary">Auto-saved to USB</span>
             <span>UTF-8</span>
           </div>

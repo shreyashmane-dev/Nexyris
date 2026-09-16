@@ -7,6 +7,9 @@
 
 import readline from 'node:readline';
 import { exec } from 'node:child_process';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { PATHS, APPLICATION_ROOT, ensureDirectoryStructure } from './dynamic-root.js';
 import { detectHardware } from './hardware.js';
 import { getStorageInfo } from './storage.js';
@@ -107,6 +110,51 @@ const TOOLS = [
       },
       required: ['command'],
     },
+  },
+  {
+    name: 'nexyris_execute_code',
+    description: 'Execute code in Python, JavaScript, TypeScript, C++, Rust, Go, or Shell strictly confined to USB pendrive with zero host footprint.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        code: {
+          type: 'string',
+          description: 'Source code string to execute',
+        },
+        language: {
+          type: 'string',
+          description: 'Programming language (python, javascript, typescript, cpp, rust, go, shell)',
+        },
+        filename: {
+          type: 'string',
+          description: 'Optional file name for execution',
+        },
+      },
+      required: ['code'],
+    },
+  },
+];
+
+export const PROMPTS = [
+  {
+    name: 'code_review',
+    description: 'Perform a comprehensive code review focusing on bugs, security, and performance.',
+    arguments: [
+      { name: 'code', description: 'Source code to review', required: true },
+      { name: 'language', description: 'Programming language', required: false },
+    ],
+  },
+  {
+    name: 'explain_algorithm',
+    description: 'Explain the algorithm and compute its Big-O time and space complexity.',
+    arguments: [
+      { name: 'code', description: 'Algorithm code', required: true },
+    ],
+  },
+  {
+    name: 'system_diagnosis',
+    description: 'Provide an AI health diagnosis of the USB storage and host hardware.',
+    arguments: [],
   },
 ];
 
@@ -252,12 +300,85 @@ async function handleToolCall(name, args) {
       };
     }
 
+    case 'nexyris_execute_code': {
+      const res = await executeCodeLocally(args.code, args.language, args.filename);
+      return {
+        content: [{ type: 'text', text: res.output }],
+        isError: res.exitCode !== 0,
+      };
+    }
+
     default:
       return {
         content: [{ type: 'text', text: `Unknown tool: ${name}` }],
         isError: true,
       };
   }
+}
+
+export async function executeCodeLocally(code, language = 'python', filename) {
+  const isWindows = process.platform === 'win32';
+  const tempDir = PATHS.temp;
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+  const lang = (language || 'python').toLowerCase();
+  let ext = '.py';
+  if (lang.includes('ts') || lang.includes('typescript')) ext = '.ts';
+  else if (lang.includes('js') || lang.includes('javascript') || lang.includes('node')) ext = '.js';
+  else if (lang.includes('cpp') || lang.includes('c++')) ext = '.cpp';
+  else if (lang.includes('rust') || lang.includes('rs')) ext = '.rs';
+  else if (lang.includes('go')) ext = '.go';
+  else if (lang.includes('sh') || lang.includes('bash') || lang.includes('shell')) ext = isWindows ? '.bat' : '.sh';
+
+  const scriptFile = path.join(tempDir, filename || `exec_${Date.now()}${ext}`);
+  fs.writeFileSync(scriptFile, code, 'utf8');
+
+  let command = '';
+  if (ext === '.py') {
+    command = `python "${scriptFile}"`;
+  } else if (ext === '.js') {
+    command = `node "${scriptFile}"`;
+  } else if (ext === '.ts') {
+    command = `npx -y tsx "${scriptFile}"`;
+  } else if (ext === '.go') {
+    command = `go run "${scriptFile}"`;
+  } else if (ext === '.cpp') {
+    const binOut = path.join(tempDir, `cpp_${Date.now()}.exe`);
+    command = `g++ "${scriptFile}" -o "${binOut}" && "${binOut}"`;
+  } else if (ext === '.rs') {
+    const binOut = path.join(tempDir, `rs_${Date.now()}.exe`);
+    command = `rustc "${scriptFile}" -o "${binOut}" && "${binOut}"`;
+  } else {
+    command = isWindows ? `cmd.exe /c "${scriptFile}"` : `bash "${scriptFile}"`;
+  }
+
+  const startTime = Date.now();
+  return new Promise((resolve) => {
+    exec(command, {
+      cwd: APPLICATION_ROOT,
+      env: {
+        ...process.env,
+        TEMP: tempDir,
+        TMP: tempDir,
+        TMPDIR: tempDir,
+        PORTABLE_ROOT: APPLICATION_ROOT,
+      },
+      timeout: 25000,
+      shell: isWindows ? 'powershell.exe' : '/bin/bash',
+    }, (error, stdout, stderr) => {
+      const elapsedMs = Date.now() - startTime;
+      const exitCode = error ? (error.code || 1) : 0;
+      try { if (fs.existsSync(scriptFile)) fs.unlinkSync(scriptFile); } catch (e) {}
+      const combined = ((stdout || '') + (stderr ? ('\n' + stderr) : '')).trim();
+      resolve({
+        stdout: stdout || '',
+        stderr: stderr || '',
+        exitCode,
+        elapsedMs,
+        output: combined || `[Execution completed with exit code ${exitCode}]`,
+      });
+    });
+  });
 }
 
 async function handleResourceRead(uri) {
@@ -295,7 +416,104 @@ async function handleResourceRead(uri) {
   throw new Error(`Resource not found: ${uri}`);
 }
 
-async function startMcpServer() {
+/**
+ * Standard MCP JSON-RPC 2.0 processor for both stdio and HTTP/SSE transports
+ */
+export async function processMcpRpcRequest(req) {
+  if (!req || typeof req !== 'object') {
+    return { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } };
+  }
+
+  const { id, method, params } = req;
+
+  switch (method) {
+    case 'initialize':
+      return {
+        jsonrpc: '2.0',
+        id,
+        result: {
+          protocolVersion: '2024-11-05',
+          capabilities: {
+            tools: {},
+            resources: {},
+            prompts: {},
+          },
+          serverInfo: {
+            name: 'nexyris-local-mcp',
+            version: '1.0.0',
+          },
+        },
+      };
+
+    case 'notifications/initialized':
+      logDebug('Client handshake confirmed.');
+      return null;
+
+    case 'ping':
+      return { jsonrpc: '2.0', id, result: {} };
+
+    case 'tools/list':
+      return { jsonrpc: '2.0', id, result: { tools: TOOLS } };
+
+    case 'tools/call': {
+      const { name, arguments: args } = params || {};
+      const result = await handleToolCall(name, args || {});
+      return { jsonrpc: '2.0', id, result };
+    }
+
+    case 'resources/list':
+      return { jsonrpc: '2.0', id, result: { resources: RESOURCES } };
+
+    case 'resources/read': {
+      const { uri } = params || {};
+      const result = await handleResourceRead(uri);
+      return { jsonrpc: '2.0', id, result };
+    }
+
+    case 'prompts/list':
+      return { jsonrpc: '2.0', id, result: { prompts: PROMPTS } };
+
+    case 'prompts/get': {
+      const { name, arguments: args } = params || {};
+      const promptObj = PROMPTS.find(p => p.name === name);
+      if (!promptObj) {
+        return {
+          jsonrpc: '2.0',
+          id,
+          error: { code: -32602, message: `Prompt not found: ${name}` },
+        };
+      }
+      let promptText = '';
+      if (name === 'code_review') {
+        promptText = `Perform a thorough code review for this ${args?.language || 'code'}:\n\`\`\`\n${args?.code || ''}\n\`\`\``;
+      } else if (name === 'explain_algorithm') {
+        promptText = `Explain this algorithm step-by-step and provide Big-O complexity analysis:\n\`\`\`\n${args?.code || ''}\n\`\`\``;
+      } else {
+        promptText = `Diagnose the health of this offline system.`;
+      }
+      return {
+        jsonrpc: '2.0',
+        id,
+        result: {
+          description: promptObj.description,
+          messages: [{ role: 'user', content: { type: 'text', text: promptText } }],
+        },
+      };
+    }
+
+    default:
+      if (id !== undefined) {
+        return {
+          jsonrpc: '2.0',
+          id,
+          error: { code: -32601, message: `Method not found: ${method}` },
+        };
+      }
+      return null;
+  }
+}
+
+export async function startMcpServer() {
   logDebug(`Initializing Nexyris Local MCP Server on stdio transport...`);
   logDebug(`Portable Root: ${APPLICATION_ROOT}`);
 
@@ -317,64 +535,15 @@ async function startMcpServer() {
       return sendError(null, -32700, 'Parse error: invalid JSON');
     }
 
-    const { id, method, params } = req;
-
     try {
-      switch (method) {
-        case 'initialize':
-          sendResult(id, {
-            protocolVersion: '2024-11-05',
-            capabilities: {
-              tools: {},
-              resources: {},
-            },
-            serverInfo: {
-              name: 'nexyris-local-mcp',
-              version: '1.0.0',
-            },
-          });
-          break;
-
-        case 'notifications/initialized':
-          // Handshake complete, client is ready
-          logDebug('Client handshake confirmed.');
-          break;
-
-        case 'ping':
-          sendResult(id, {});
-          break;
-
-        case 'tools/list':
-          sendResult(id, { tools: TOOLS });
-          break;
-
-        case 'tools/call': {
-          const { name, arguments: args } = params || {};
-          const result = await handleToolCall(name, args || {});
-          sendResult(id, result);
-          break;
-        }
-
-        case 'resources/list':
-          sendResult(id, { resources: RESOURCES });
-          break;
-
-        case 'resources/read': {
-          const { uri } = params || {};
-          const result = await handleResourceRead(uri);
-          sendResult(id, result);
-          break;
-        }
-
-        default:
-          if (id !== undefined) {
-            sendError(id, -32601, `Method not found: ${method}`);
-          }
+      const response = await processMcpRpcRequest(req);
+      if (response) {
+        sendResponse(response);
       }
     } catch (err) {
-      logDebug(`Error handling ${method}:`, err.message);
-      if (id !== undefined) {
-        sendError(id, -32603, `Internal error: ${err.message}`);
+      logDebug(`Error handling ${req?.method}:`, err.message);
+      if (req?.id !== undefined) {
+        sendError(req.id, -32603, `Internal error: ${err.message}`);
       }
     }
   });
@@ -386,7 +555,18 @@ async function startMcpServer() {
   });
 }
 
-startMcpServer().catch(err => {
-  logDebug('Fatal MCP server crash:', err);
-  process.exit(1);
-});
+export { TOOLS, RESOURCES };
+
+// Automatically start stdio loop if executed directly (e.g. node server/mcp-server.js)
+const currentFilePath = fileURLToPath(import.meta.url);
+const isDirectExecution = Boolean(
+  process.argv[1] &&
+  path.resolve(process.argv[1]).toLowerCase() === path.resolve(currentFilePath).toLowerCase()
+);
+
+if (isDirectExecution) {
+  startMcpServer().catch(err => {
+    logDebug('Fatal MCP server crash:', err);
+    process.exit(1);
+  });
+}

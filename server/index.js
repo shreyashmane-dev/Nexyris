@@ -20,6 +20,9 @@ import {
   listCodeProjects,
   saveCodeProject,
   deleteCodeProject,
+  listMcpServers,
+  saveMcpServer,
+  deleteMcpServer,
   closeDatabase
 } from './db.js';
 import { modelManager } from './model-manager.js';
@@ -28,6 +31,7 @@ import { runtimeManager } from './runtime-manager.js';
 import { parseGgufHeader } from './gguf-parser.js';
 import { scanLocalOllama, importOllamaBlob, POPULAR_OLLAMA_MODELS } from './providers/ollama-scanner.js';
 import { getLiveHuggingFaceModels, searchHuggingFace, fetchRepoFiles } from './providers/hf-catalog.js';
+import { processMcpRpcRequest, TOOLS, RESOURCES, PROMPTS, executeCodeLocally } from './mcp-server.js';
 
 // Prevent server from crashing under any circumstance
 process.on('uncaughtException', (err) => {
@@ -217,47 +221,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // -------------------------------------------------------------
-    // Real Terminal Execution API (On USB pendrive)
-    // -------------------------------------------------------------
-    if (method === 'GET' && pathname === '/api/terminal/history') {
-      return sendJson(res, 200, getTerminalHistory(100));
-    }
-
-    if (method === 'POST' && (pathname === '/api/terminal/exec' || pathname === '/api/terminal/execute' || pathname === '/api/terminal/command')) {
-      const body = await parseBody(req);
-      const command = (body.command || '').trim();
-      if (!command) return sendJson(res, 400, { error: 'command is required' });
-
-      const startTime = Date.now();
-      const isWindows = process.platform === 'win32';
-
-      // Execute in APPLICATION_ROOT (the USB drive) with strict USB environment confinement
-      exec(command, { 
-        cwd: APPLICATION_ROOT, 
-        env: {
-          ...process.env,
-          TEMP: PATHS.temp,
-          TMP: PATHS.temp,
-          TMPDIR: PATHS.temp,
-          PORTABLE_ROOT: APPLICATION_ROOT,
-        },
-        timeout: 30000,
-        shell: isWindows ? 'powershell.exe' : '/bin/bash',
-      }, (error, stdout, stderr) => {
-        const elapsed = Date.now() - startTime;
-        const exitCode = error ? (error.code || 1) : 0;
-        let outputText = (stdout || '') + (stderr ? ('\n' + stderr) : '');
-        if (!outputText.trim()) {
-          outputText = exitCode === 0 ? '[Process completed successfully with exit code 0]' : `[Process failed with exit code ${exitCode}]`;
-        }
-
-        const id = 'term-' + Date.now();
-        const saved = addTerminalCommand(id, command, outputText.trim(), body.modelId);
-
-        return sendJson(res, 200, {
-          ...saved,
-          stdout: stdout || '',
-          stderr: stderr || '',
+ :O          stderr: stderr || '',
           exitCode,
           elapsed,
           cwd: APPLICATION_ROOT,
@@ -286,6 +250,74 @@ const server = http.createServer(async (req, res) => {
 
       const imported = await modelManager.importLocalGguf(sourcePath, name);
       return sendJson(res, 200, imported);
+    }
+
+    // -------------------------------------------------------------
+    // Model Context Protocol (MCP) JSON-RPC 2.0 Standard Endpoints
+    // -------------------------------------------------------------
+    if ((pathname === '/mcp' || pathname === '/api/mcp') && method === 'POST') {
+      const body = await parseBody(req);
+      const mcpResponse = await processMcpRpcRequest(body);
+      if (mcpResponse) {
+        return sendJson(res, 200, mcpResponse);
+      } else {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+    }
+
+    if ((pathname === '/mcp' || pathname === '/mcp/sse') && method === 'GET') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.write(`event: endpoint\ndata: /mcp\n\n`);
+      return;
+    }
+
+    // List and Manage MCP Servers
+    if (pathname === '/api/mcp/servers' && method === 'GET') {
+      const servers = listMcpServers();
+      return sendJson(res, 200, {
+        builtIn: {
+          name: 'nexyris-local-mcp',
+          version: '1.0.0',
+          protocolVersion: '2024-11-05',
+          status: 'online',
+          transport: ['stdio', 'http-post', 'sse'],
+          endpoint: `http://${req.headers.host || '127.0.0.1:38192'}/mcp`,
+          stdioCommand: `node server/mcp-server.js`,
+          tools: TOOLS,
+          resources: RESOURCES,
+          prompts: PROMPTS,
+        },
+        externalServers: servers,
+      });
+    }
+
+    if (pathname === '/api/mcp/servers' && method === 'POST') {
+      const body = await parseBody(req);
+      if (!body.name) return sendJson(res, 400, { error: 'Server name is required' });
+      const saved = saveMcpServer(body);
+      return sendJson(res, 200, saved);
+    }
+
+    if (pathname.startsWith('/api/mcp/servers/') && method === 'DELETE') {
+      const serverId = pathname.replace('/api/mcp/servers/', '');
+      deleteMcpServer(serverId);
+      return sendJson(res, 200, { success: true, id: serverId });
+    }
+
+    // Real Code Execution Endpoint for Workspace & MCP
+    if (pathname === '/api/code/run' && method === 'POST') {
+      const body = await parseBody(req);
+      const { code, language, filename } = body;
+      if (!code) return sendJson(res, 400, { error: 'code is required' });
+      const result = await executeCodeLocally(code, language, filename);
+      return sendJson(res, 200, result);
     }
 
     // Direct Browser File Upload to USB models directory
