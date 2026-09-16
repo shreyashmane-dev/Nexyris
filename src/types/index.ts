@@ -124,7 +124,9 @@ export interface Message {
   content: string;
   model_id?: string;
   token_count?: number;
+  tokensGenerated?: number;
   tokens_per_sec?: number;
+  speedTokPerSec?: number;
   speed_tok_s?: number;
   created_at: string;
 }

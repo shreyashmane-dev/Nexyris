@@ -80,8 +80,8 @@ export const App: React.FC = () => {
       const hfData = await fetchHuggingFaceCatalog();
       setCuratedModels(hfData.curated || []);
 
-      // If never installed or first run, display Setup Wizard
-      if (!init.portableConfig.installed && !init.portableConfig.firstRunCompleted) {
+      // If first run or no models installed on USB, display Setup Wizard to choose & download a model
+      if (!init.portableConfig.firstRunCompleted || mData.models.length === 0) {
         setShowWizard(true);
       } else if (mData.models.length > 0 && !init.runtimeStatus.currentModel) {
         // Auto-select first model if not started
@@ -152,60 +152,67 @@ export const App: React.FC = () => {
         onSelectMode={setCurrentMode}
         storage={storage}
         activeDownloadsCount={activeDownloadsCount}
+        modelsCount={models.length}
         onOpenShutdown={() => setShowShutdownModal(true)}
+        onNewChat={() => setCurrentMode('chat')}
       />
 
       {/* Main Workspace Frame */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', position: 'relative' }}>
-        {currentMode !== 'chat' && (
-          <TopBar
-            currentMode={currentMode}
-            models={models}
-            runtimeStatus={runtimeStatus}
-            onSelectModel={handleSelectModel}
-            onStopModel={handleStopModel}
-            onNavigateToModels={() => setCurrentMode('models')}
-          />
-        )}
+      <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
+        <TopBar
+          currentMode={currentMode}
+          models={models}
+          runtimeStatus={runtimeStatus}
+          hardware={hardware}
+          onSelectModel={handleSelectModel}
+          onStopModel={handleStopModel}
+          onNavigateToModels={() => setCurrentMode('models')}
+          onOpenSettings={() => setCurrentMode('settings')}
+        />
 
         {/* View Switcher */}
-        {currentMode === 'chat' && (
-          <ChatView
-            runtimeStatus={runtimeStatus}
-            onSelectModel={handleSelectModel}
-            models={models}
-            onNavigateToModels={() => setCurrentMode('models')}
-            onStopModel={handleStopModel}
-            onRefreshModels={handleRefreshModels}
-          />
-        )}
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+          {currentMode === 'chat' && (
+            <ChatView
+              runtimeStatus={runtimeStatus}
+              onSelectModel={handleSelectModel}
+              models={models}
+              onNavigateToModels={() => setCurrentMode('models')}
+              onStopModel={handleStopModel}
+              onRefreshModels={handleRefreshModels}
+            />
+          )}
 
-        {currentMode === 'terminal' && (
-          <TerminalView />
-        )}
+          {currentMode === 'terminal' && (
+            <TerminalView />
+          )}
 
-        {currentMode === 'code' && (
-          <CodeAssistantView />
-        )}
+          {currentMode === 'code' && (
+            <CodeAssistantView />
+          )}
 
-        {currentMode === 'image' && (
-          <ImageStudioView models={models} />
-        )}
+          {currentMode === 'image' && (
+            <ImageStudioView models={models} />
+          )}
 
-        {currentMode === 'models' && (
-          <ModelLibraryView
-            models={models}
-            runtimeStatus={runtimeStatus}
-            hardware={hardware}
-            storage={storage}
-            onRefreshModels={handleRefreshModels}
-            onSelectModel={handleSelectModel}
-          />
-        )}
+          {currentMode === 'models' && (
+            <ModelLibraryView
+              models={models}
+              runtimeStatus={runtimeStatus}
+              hardware={hardware}
+              storage={storage}
+              onRefreshModels={handleRefreshModels}
+              onSelectModel={handleSelectModel}
+            />
+          )}
 
-        {currentMode === 'downloads' && (
-          <DownloadsView />
-        )}
+          {currentMode === 'downloads' && (
+            <DownloadsView 
+              storage={storage}
+              onSelectModel={handleSelectModel}
+              onNavigateToChat={() => setCurrentMode('chat')}
+            />
+          )}
 
         {currentMode === 'diagnostics' && (
           <DiagnosticsView
@@ -224,6 +231,7 @@ export const App: React.FC = () => {
         {currentMode === 'settings' && (
           <SettingsView hardware={hardware} />
         )}
+        </div>
 
         {/* Global Browser-Style Floating Download Bar */}
         {activeDownload && (activeDownload.status === 'downloading' || activeDownload.status === 'verifying') && (
@@ -234,26 +242,25 @@ export const App: React.FC = () => {
             left: '24px',
             maxWidth: '820px',
             margin: '0 auto',
-            backgroundColor: '#090d18',
-            border: '1px solid rgba(56, 189, 248, 0.4)',
+            backgroundColor: '#ffffff',
+            border: '1px solid var(--border-subtle)',
             borderRadius: '12px',
             padding: '12px 18px',
-            boxShadow: '0 16px 36px rgba(0, 0, 0, 0.7), 0 0 20px rgba(56, 189, 248, 0.15)',
+            boxShadow: '0 10px 30px -5px rgba(0, 0, 0, 0.12)',
             display: 'flex',
             alignItems: 'center',
             gap: '16px',
             zIndex: 9999,
-            backdropFilter: 'blur(16px)',
           }}>
             <div style={{
               width: '38px',
               height: '38px',
               borderRadius: '8px',
-              backgroundColor: 'rgba(56, 189, 248, 0.12)',
+              backgroundColor: 'rgba(220, 38, 38, 0.08)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#38bdf8',
+              color: '#dc2626',
               flexShrink: 0,
             }}>
               <Download size={20} />
@@ -261,27 +268,27 @@ export const App: React.FC = () => {
 
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   Downloading: {activeDownload.name}
                 </span>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: '#38bdf8' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: '#dc2626' }}>
                   {activeDownload.status === 'verifying' ? 'Verifying GGUF Header...' : `${activeDownload.percent}% • ${activeDownload.speedMBs || 0} MB/s`}
                   {activeDownload.etaSeconds && activeDownload.status !== 'verifying' ? ` (ETA ${Math.floor(activeDownload.etaSeconds / 60)}m ${activeDownload.etaSeconds % 60}s)` : ''}
                 </span>
               </div>
 
-              <div style={{ width: '100%', height: '6px', backgroundColor: 'rgba(255, 255, 255, 0.08)', borderRadius: '3px', overflow: 'hidden', marginBottom: '5px' }}>
+              <div style={{ width: '100%', height: '6px', backgroundColor: '#e2e8f0', borderRadius: '3px', overflow: 'hidden', marginBottom: '5px' }}>
                 <div style={{
                   width: `${activeDownload.percent}%`,
                   height: '100%',
-                  background: 'linear-gradient(90deg, #38bdf8 0%, #6366f1 100%)',
+                  background: 'linear-gradient(90deg, #ef4444 0%, #b91c1c 100%)',
                   borderRadius: '3px',
                   transition: 'width 0.3s ease',
                 }} />
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--text-muted)' }}>
-                <span>Saving to: <strong style={{ color: '#38bdf8' }}>{storage?.driveLetter || 'USB:'}\models\gguf\{activeDownload.filename}</strong></span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                <span>Saving to: <strong style={{ color: '#dc2626' }}>{storage?.driveLetter || 'USB:'}\models\{activeDownload.filename}</strong></span>
                 <span>Free on Drive: {storage?.freeGB || 0} GB</span>
               </div>
             </div>
@@ -294,9 +301,9 @@ export const App: React.FC = () => {
                   fontSize: '11.5px',
                   fontWeight: 600,
                   borderRadius: '6px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                  border: '1px solid rgba(255, 255, 255, 0.12)',
-                  color: '#e2e8f0',
+                  backgroundColor: '#f1f5f9',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-primary)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -313,9 +320,9 @@ export const App: React.FC = () => {
                   fontSize: '11.5px',
                   fontWeight: 600,
                   borderRadius: '6px',
-                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  color: '#f87171',
+                  backgroundColor: 'rgba(220, 38, 38, 0.08)',
+                  border: '1px solid rgba(220, 38, 38, 0.25)',
+                  color: '#dc2626',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',

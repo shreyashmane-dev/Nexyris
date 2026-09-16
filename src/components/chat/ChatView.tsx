@@ -1,47 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  ArrowUp,
-  Square, 
-  Plus, 
-  Trash2, 
-  Copy, 
-  Check, 
-  Bot, 
-  User, 
-  Sparkles,
-  Zap,
-  Search,
-  AlertTriangle,
-  Download,
-  MessageSquare,
-  X,
-  ChevronDown,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Edit2,
-  RefreshCw,
-  Cpu,
-  Layers,
-  Code2,
-  Lightbulb,
-  Terminal,
-  ShieldCheck,
-  Play
-} from 'lucide-react';
 import { Conversation, Message, ModelItem, RuntimeStatus, DownloadTask } from '../../types';
 import { 
   fetchConversations, 
   createConversation, 
   fetchMessages, 
   saveMessage, 
-  deleteConversation,
-  updateConversation,
   streamChatCompletion,
   fetchHuggingFaceCatalog,
   queueDownload,
   fetchDownloads,
   startRuntimeModel,
-  stopRuntimeModel
 } from '../../lib/api';
 
 interface ChatViewProps {
@@ -58,18 +26,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onSelectModel, 
   models, 
   onNavigateToModels,
-  onStopModel,
   onRefreshModels
 }) => {
-  // Navigation & History State
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
-  const [editingConvId, setEditingConvId] = useState<string | null>(null);
-  const [editTitle, setEditTitle] = useState('');
-  const [historySearch, setHistorySearch] = useState('');
-
-  // Chat State
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputPrompt, setInputPrompt] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -78,33 +38,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // ChatGPT Model Dropdown
-  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
-  const modelDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Online Hugging Face Discovery & Search State
+  // Hugging Face online discover state when no models are installed
   const [hfCatalog, setHfCatalog] = useState<ModelItem[]>([]);
-  const [isSearchingHf, setIsSearchingHf] = useState(false);
-  const [hfSearchQuery, setHfSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'edge' | 'smart' | 'uncensored'>('all');
   const [downloadingModelId, setDownloadingModelId] = useState<string | null>(null);
   const [activeDownloadInfo, setActiveDownloadInfo] = useState<DownloadTask | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Initialize
   useEffect(() => {
     loadConversations();
     loadLiveModels();
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(event.target as Node)) {
-        setModelDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   // Poll downloads if a download is active
@@ -120,7 +64,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
               setDownloadingModelId(null);
               setActiveDownloadInfo(null);
               if (onRefreshModels) onRefreshModels();
-              // Auto-launch the newly downloaded model
               if (res.active.id) {
                 try {
                   await startRuntimeModel(res.active.id);
@@ -128,7 +71,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
               }
             }
           } else {
-            // Check if queue completed
             setDownloadingModelId(null);
             setActiveDownloadInfo(null);
             if (onRefreshModels) onRefreshModels();
@@ -153,7 +95,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingText]);
 
-  // Load Past Chats
   const loadConversations = async () => {
     try {
       const list = await fetchConversations();
@@ -164,7 +105,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     } catch (e) {}
   };
 
-  // Load Messages for a Chat
   const loadMessages = async (convId: string) => {
     try {
       const msgs = await fetchMessages(convId);
@@ -172,70 +112,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
     } catch (e) {}
   };
 
-  // Fetch Live Models from Hugging Face online
   const loadLiveModels = async (query = '') => {
-    setIsSearchingHf(true);
     try {
       const data = await fetchHuggingFaceCatalog(query);
       setHfCatalog(data.curated || data.results || []);
-    } catch (e) {
-      console.warn('Could not load live Hugging Face catalog:', e);
-    } finally {
-      setIsSearchingHf(false);
-    }
-  };
-
-  // Search input debouncer for live Hugging Face search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      loadLiveModels(hfSearchQuery);
-    }, 450);
-    return () => clearTimeout(timer);
-  }, [hfSearchQuery]);
-
-  // Start New Chat (ChatGPT Style)
-  const handleNewChat = async () => {
-    try {
-      const modelId = runtimeStatus.currentModel?.id || models[0]?.id;
-      const newConv = await createConversation('New Chat', modelId);
-      setConversations([newConv, ...conversations]);
-      setActiveConvId(newConv.id);
-      setMessages([]);
-      setErrorMessage(null);
-      if (inputRef.current) {
-        inputRef.current.focus();
-      }
     } catch (e) {}
   };
 
-  // Rename Conversation Title
-  const handleSaveTitle = async (convId: string) => {
-    if (!editTitle.trim()) {
-      setEditingConvId(null);
-      return;
-    }
-    try {
-      await updateConversation(convId, editTitle.trim());
-      setConversations(conversations.map(c => c.id === convId ? { ...c, title: editTitle.trim() } : c));
-    } catch (e) {}
-    setEditingConvId(null);
-  };
-
-  // Delete Conversation
-  const handleDeleteConv = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    try {
-      await deleteConversation(id);
-      const remaining = conversations.filter(c => c.id !== id);
-      setConversations(remaining);
-      if (activeConvId === id) {
-        setActiveConvId(remaining.length > 0 ? remaining[0].id : null);
-      }
-    } catch (e) {}
-  };
-
-  // 1-Click Online Model Download & Launch
-  const handleDownloadAndStart = async (model: any) => {
+  const handleDownloadModel = async (model: any) => {
     try {
       setDownloadingModelId(model.id);
       await queueDownload({
@@ -252,7 +136,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   };
 
-  // Send Message
   const handleSendMessage = async (customPrompt?: string) => {
     const textToSend = (customPrompt || inputPrompt).trim();
     if (!textToSend || isStreaming || models.length === 0) return;
@@ -262,7 +145,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
     let convId = activeConvId;
     if (!convId) {
-      const newConv = await createConversation(textToSend.slice(0, 30), activeModelId);
+      const newConv = await createConversation(textToSend.slice(0, 32), activeModelId);
       setConversations([newConv, ...conversations]);
       convId = newConv.id;
       setActiveConvId(convId);
@@ -270,7 +153,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
     setInputPrompt('');
 
-    // Optimistically append user message
     const userMsg: Message = {
       id: 'temp-user-' + Date.now(),
       conversation_id: convId,
@@ -311,7 +193,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       (err) => {
         setIsStreaming(false);
         setStreamingText('');
-        setErrorMessage(err.message || 'Error communicating with local AI model');
+        setErrorMessage(err.message || 'Error communicating with local model');
       }
     );
   };
@@ -322,1195 +204,434 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setTimeout(() => setCopiedMsgId(null), 2000);
   };
 
-  // Chronological grouping helper for history (Today, Yesterday, Previous 7 Days, Older)
-  const groupConversations = () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    const last7Days = new Date(today);
-    last7Days.setDate(last7Days.getDate() - 7);
-
-    const groups: { [key: string]: Conversation[] } = {
-      'Today': [],
-      'Yesterday': [],
-      'Previous 7 Days': [],
-      'Older': [],
-    };
-
-    const filtered = conversations.filter(c => 
-      !historySearch || c.title.toLowerCase().includes(historySearch.toLowerCase())
-    );
-
-    filtered.forEach(c => {
-      const d = new Date(c.updated_at || c.created_at);
-      if (d >= today) {
-        groups['Today'].push(c);
-      } else if (d >= yesterday) {
-        groups['Yesterday'].push(c);
-      } else if (d >= last7Days) {
-        groups['Previous 7 Days'].push(c);
-      } else {
-        groups['Older'].push(c);
-      }
+  const handleExportMarkdown = () => {
+    if (messages.length === 0) return;
+    const title = activeConversation?.title || 'nexyris-chat';
+    let md = `# ${title}\n*Exported from Nexyris Local AI*\n\n`;
+    messages.forEach(m => {
+      md += `### ${m.role === 'user' ? 'User' : 'Nexyris'}\n${m.content}\n\n`;
     });
-
-    return groups;
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title.toLowerCase().replace(/\s+/g, '-')}.md`;
+    a.click();
   };
 
-  const groupedHistory = groupConversations();
+  const activeConversation = conversations.find(c => c.id === activeConvId);
 
-  // Filtered live Hugging Face catalog
-  const filteredHfModels = hfCatalog.filter(m => {
-    if (activeFilter === 'edge') {
-      return (m.fileSizeGB && m.fileSizeGB <= 2.2) || m.name.toLowerCase().includes('1b') || m.name.toLowerCase().includes('smollm');
-    }
-    if (activeFilter === 'smart') {
-      return (m.fileSizeGB && m.fileSizeGB > 2.2 && m.fileSizeGB <= 6) || m.name.toLowerCase().includes('qwen') || m.name.toLowerCase().includes('llama');
-    }
-    if (activeFilter === 'uncensored') {
-      return m.label === 'UNCENSORED' || m.name.toLowerCase().includes('uncensored') || m.name.toLowerCase().includes('dolphin') || m.name.toLowerCase().includes('nemo');
-    }
-    return true;
-  });
+  const renderFormattedContent = (content: string, msgId: string) => {
+    // Check if message contains code block
+    const codeBlockRegex = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
 
-  const activeModel = runtimeStatus.currentModel || models[0];
-  const isModelRunning = runtimeStatus.status === 'READY';
+    while ((match = codeBlockRegex.exec(content)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push({ type: 'text', text: content.slice(lastIndex, match.index) });
+      }
+      parts.push({
+        type: 'code',
+        language: match[1] || 'plaintext',
+        code: match[2],
+      });
+      lastIndex = match.index + match[0].length;
+    }
 
-  // ChatGPT Starter Suggestions
-  const starterPrompts = [
-    { title: "Explain a concept", desc: "How does LLM quantization like Q4_K_M work?", icon: <Lightbulb size={16} color="#fbbf24" /> },
-    { title: "Write a script", desc: "Write a Python script to scan and hash local files", icon: <Code2 size={16} color="#34d399" /> },
-    { title: "Review & Debug", desc: "Check this TypeScript function for memory leaks", icon: <Terminal size={16} color="#60a5fa" /> },
-    { title: "Inspect System", desc: "Show PowerShell commands for disk IO & RAM usage", icon: <Cpu size={16} color="#c084fc" /> },
-  ];
+    if (lastIndex < content.length) {
+      parts.push({ type: 'text', text: content.slice(lastIndex) });
+    }
+
+    if (parts.length === 0) {
+      parts.push({ type: 'text', text: content });
+    }
+
+    return (
+      <div className="flex flex-col gap-4 font-body-lg text-on-surface leading-relaxed px-1">
+        {parts.map((p, idx) => {
+          if (p.type === 'code') {
+            return (
+              <div key={idx} className="bg-surface-container-high rounded-xl overflow-hidden shadow-xs border border-surface-container-highest my-2">
+                <div className="flex items-center justify-between px-4 py-2 bg-surface-container-highest">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-secondary"></span>
+                    <span className="font-label-code text-body-sm text-on-surface font-semibold">
+                      {p.language ? `${p.language}` : 'code_snippet'}
+                    </span>
+                    <span className="font-label-telemetry text-body-sm text-secondary">Local Execution</span>
+                  </div>
+                  <button 
+                    onClick={() => copyToClipboard(p.code, `${msgId}-code-${idx}`)}
+                    className="flex items-center gap-1 font-label-telemetry text-body-sm text-secondary hover:text-on-surface transition-colors px-2 py-0.5 rounded bg-surface-container border-none cursor-pointer"
+                    type="button"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">content_copy</span>
+                    <span>{copiedMsgId === `${msgId}-code-${idx}` ? 'Copied' : 'Copy Code'}</span>
+                  </button>
+                </div>
+                <pre className="p-4 font-label-code text-label-code text-on-surface overflow-x-auto leading-6 m-0 bg-[#0c0c0e] text-[#dadadb]">
+                  <code>{p.code}</code>
+                </pre>
+              </div>
+            );
+          }
+
+          // Format paragraphs, bold text, and lists
+          return (
+            <div key={idx} className="whitespace-pre-wrap">
+              {p.text}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
-    <div style={{
-      display: 'flex',
-      width: '100%',
-      height: '100vh',
-      backgroundColor: '#090d16',
-      color: '#ececec',
-      overflow: 'hidden',
-      fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-      position: 'relative',
-    }}>
-      
-      {/* ================================================================= */}
-      {/* 1. COLLAPSIBLE CHATGPT SIDEBAR                                    */}
-      {/* ================================================================= */}
-      <aside style={{
-        width: sidebarOpen ? '260px' : '0px',
-        minWidth: sidebarOpen ? '260px' : '0px',
-        height: '100%',
-        backgroundColor: '#0c101c',
-        borderRight: sidebarOpen ? '1px solid rgba(255, 255, 255, 0.08)' : 'none',
-        display: 'flex',
-        flexDirection: 'column',
-        transition: 'width 0.22s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1)',
-        overflow: 'hidden',
-        zIndex: 30,
-        position: 'relative',
-      }}>
-        <div style={{ width: '260px', height: '100%', display: 'flex', flexDirection: 'column' }}>
-          
-          {/* Top Brand & Sidebar Close Button */}
-          <div style={{
-            padding: '12px 14px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '14px', color: '#f8fafc' }}>
-              <div style={{
-                width: '26px',
-                height: '26px',
-                borderRadius: '7px',
-                background: 'linear-gradient(135deg, #38bdf8 0%, #2563eb 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#fff',
-              }}>
-                <Sparkles size={14} />
+    <div className="flex-1 flex flex-col h-full bg-surface relative overflow-hidden">
+      {/* Scrollable Chat Canvas */}
+      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 pb-48 flex flex-col items-center">
+        <div className="w-full max-w-3xl flex flex-col gap-6">
+
+          {/* Conversation Context Meta Banner */}
+          {messages.length > 0 && (
+            <div className="flex items-center justify-between py-2 px-4 rounded-lg bg-surface-container-low shadow-sm border border-surface-container-highest">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="font-label-telemetry text-body-sm text-secondary uppercase tracking-wider font-semibold flex-shrink-0">
+                  Context Session
+                </span>
+                <span className="font-headline-md text-body-md text-on-surface truncate font-semibold">
+                  {activeConversation?.title || 'Local TCP Session'}
+                </span>
               </div>
-              <span>Nexyris</span>
-            </div>
-
-            <button
-              onClick={() => setSidebarOpen(false)}
-              title="Close sidebar"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#94a3b8',
-                cursor: 'pointer',
-                padding: '6px',
-                borderRadius: '6px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background 0.15s ease',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.08)')}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-            >
-              <PanelLeftClose size={18} />
-            </button>
-          </div>
-
-          {/* "+ New chat" Button (ChatGPT Style) */}
-          <div style={{ padding: '0 12px 10px' }}>
-            <button
-              onClick={handleNewChat}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '10px 14px',
-                borderRadius: '8px',
-                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                color: '#f8fafc',
-                fontSize: '13px',
-                fontWeight: 500,
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)';
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)';
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
-              }}
-            >
-              <Plus size={16} color="#38bdf8" />
-              <span>New chat</span>
-            </button>
-          </div>
-
-          {/* Search past chats input */}
-          <div style={{ padding: '0 12px 10px' }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              backgroundColor: 'rgba(0,0,0,0.35)',
-              padding: '6px 10px',
-              borderRadius: '6px',
-              border: '1px solid rgba(255,255,255,0.08)',
-            }}>
-              <Search size={13} color="#64748b" />
-              <input
-                type="text"
-                placeholder="Search chats..."
-                value={historySearch}
-                onChange={(e) => setHistorySearch(e.target.value)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  outline: 'none',
-                  fontSize: '12px',
-                  color: '#ececec',
-                  width: '100%',
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Grouped Conversations List */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 12px' }}>
-            {conversations.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '24px 10px', fontSize: '12px', color: '#64748b' }}>
-                No past chats yet.
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <button 
+                  className="p-1.5 rounded hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors cursor-pointer bg-transparent border-none" 
+                  title="Fork Thread" 
+                  type="button"
+                >
+                  <span className="material-symbols-outlined text-[17px]">alt_route</span>
+                </button>
+                <button 
+                  onClick={handleExportMarkdown}
+                  className="p-1.5 rounded hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors cursor-pointer bg-transparent border-none" 
+                  title="Export Markdown" 
+                  type="button"
+                >
+                  <span className="material-symbols-outlined text-[17px]">file_download</span>
+                </button>
               </div>
-            ) : (
-              Object.entries(groupedHistory).map(([groupTitle, convs]) => {
-                if (convs.length === 0) return null;
-                return (
-                  <div key={groupTitle} style={{ marginBottom: '14px' }}>
-                    <div style={{
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      color: '#64748b',
-                      padding: '6px 10px 4px',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.4px',
-                    }}>
-                      {groupTitle}
-                    </div>
+            </div>
+          )}
 
-                    {convs.map((conv) => {
-                      const isActive = activeConvId === conv.id;
-                      const isEditing = editingConvId === conv.id;
+          {/* STATE 1: NO MODELS INSTALLED ON USB */}
+          {models.length === 0 ? (
+            <div className="w-full flex flex-col items-center text-center py-12 px-4">
+              <div className="w-14 h-14 rounded-2xl bg-primary-container text-on-primary flex items-center justify-center shadow-md mb-4">
+                <span className="material-symbols-outlined text-[28px]">download_for_offline</span>
+              </div>
 
-                      return (
-                        <div
-                          key={conv.id}
-                          onClick={() => setActiveConvId(conv.id)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '8px 10px',
-                            borderRadius: '7px',
-                            backgroundColor: isActive ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-                            color: isActive ? '#fff' : '#cbd5e1',
-                            fontSize: '13px',
-                            cursor: 'pointer',
-                            marginBottom: '2px',
-                            transition: 'background 0.15s ease',
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!isActive) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)';
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!isActive) e.currentTarget.style.backgroundColor = 'transparent';
-                          }}
-                        >
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              value={editTitle}
-                              autoFocus
-                              onChange={(e) => setEditTitle(e.target.value)}
-                              onBlur={() => handleSaveTitle(conv.id)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleSaveTitle(conv.id);
-                                if (e.key === 'Escape') setEditingConvId(null);
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              style={{
-                                background: '#1e293b',
-                                border: '1px solid #38bdf8',
-                                color: '#fff',
-                                fontSize: '12.5px',
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                width: '150px',
-                                outline: 'none',
-                              }}
-                            />
-                          ) : (
-                            <div style={{
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              maxWidth: '170px',
-                            }}>
-                              {conv.title || 'Untitled Chat'}
-                            </div>
-                          )}
+              <h2 className="font-headline-xl text-on-surface tracking-tight mb-2">
+                Choose an AI Model to Start
+              </h2>
+              <p className="font-body-md text-secondary max-w-lg mb-8">
+                Nexyris operates 100% privately on your hardware from USB. Select a recommended lightweight model below to download directly to your drive:
+              </p>
 
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            {isActive && !isEditing && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingConvId(conv.id);
-                                  setEditTitle(conv.title);
-                                }}
-                                title="Rename chat"
-                                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '2px' }}
-                              >
-                                <Edit2 size={12} />
-                              </button>
-                            )}
-                            <button
-                              onClick={(e) => handleDeleteConv(e, conv.id)}
-                              title="Delete chat"
-                              style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', padding: '2px' }}
-                              onMouseEnter={(e) => (e.currentTarget.style.color = '#fb7185')}
-                              onMouseLeave={(e) => (e.currentTarget.style.color = '#64748b')}
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+              {downloadingModelId && (
+                <div className="w-full max-w-md bg-surface-container-low border border-primary rounded-xl p-4 mb-6 text-left shadow-sm">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-headline-md text-body-sm text-on-surface font-semibold flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[16px] text-primary animate-spin">refresh</span>
+                      Downloading directly to USB...
+                    </span>
+                    <span className="font-label-telemetry text-primary font-bold">
+                      {activeDownloadInfo ? `${activeDownloadInfo.percent}%` : 'Starting...'}
+                    </span>
                   </div>
-                );
-              })
-            )}
-          </div>
-
-          {/* Sidebar Footer: USB Privacy Note */}
-          <div style={{
-            padding: '12px 14px',
-            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-            fontSize: '11px',
-            color: '#64748b',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}>
-            <ShieldCheck size={14} color="#34d399" />
-            <span>100% Offline • Saved on USB</span>
-          </div>
-
-        </div>
-      </aside>
-
-      {/* ================================================================= */}
-      {/* 2. MAIN CHATGPT CONVERSATION VIEWPORT                              */}
-      {/* ================================================================= */}
-      <main style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        backgroundColor: '#090d16',
-        position: 'relative',
-        overflow: 'hidden',
-      }}>
-
-        {/* Minimalist ChatGPT Top Header */}
-        <header style={{
-          height: '52px',
-          padding: '0 16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-          backgroundColor: 'rgba(9, 13, 22, 0.85)',
-          backdropFilter: 'blur(12px)',
-          zIndex: 20,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {/* Sidebar toggle button (visible if closed) */}
-            {!sidebarOpen && (
-              <button
-                onClick={() => setSidebarOpen(true)}
-                title="Open sidebar"
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#94a3b8',
-                  cursor: 'pointer',
-                  padding: '6px',
-                  borderRadius: '6px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.08)')}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
-                <PanelLeftOpen size={18} />
-              </button>
-            )}
-
-            {!sidebarOpen && (
-              <button
-                onClick={handleNewChat}
-                title="New chat"
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#94a3b8',
-                  cursor: 'pointer',
-                  padding: '6px',
-                  borderRadius: '6px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.08)')}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
-                <Plus size={18} />
-              </button>
-            )}
-
-            {/* Signature ChatGPT Model Selector Dropdown Pill */}
-            <div style={{ position: 'relative' }} ref={modelDropdownRef}>
-              <button
-                onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '6px 12px',
-                  borderRadius: '10px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                  border: '1px solid rgba(255, 255, 255, 0.12)',
-                  color: '#f8fafc',
-                  fontSize: '13.5px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)')}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)')}
-              >
-                <div style={{
-                  width: '7px',
-                  height: '7px',
-                  borderRadius: '50%',
-                  backgroundColor: isModelRunning ? '#10b981' : models.length > 0 ? '#38bdf8' : '#eab308',
-                  boxShadow: isModelRunning ? '0 0 8px #10b981' : 'none',
-                }} />
-                <span>{activeModel ? activeModel.name : 'Choose AI Model'}</span>
-                <ChevronDown size={14} color="#94a3b8" />
-              </button>
-
-              {/* Model Switcher Popover */}
-              {modelDropdownOpen && (
-                <div style={{
-                  position: 'absolute',
-                  top: 'calc(100% + 6px)',
-                  left: 0,
-                  width: '310px',
-                  backgroundColor: '#0f172a',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
-                  borderRadius: '12px',
-                  boxShadow: '0 16px 36px rgba(0,0,0,0.6)',
-                  padding: '8px',
-                  zIndex: 100,
-                }}>
-                  <div style={{ padding: '6px 8px', fontSize: '11px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>
-                    Installed on USB Drive ({models.length})
+                  <div className="w-full bg-surface-container-highest h-2 rounded-full overflow-hidden mb-2">
+                    <div 
+                      className="bg-primary h-full rounded-full transition-all duration-300"
+                      style={{ width: `${activeDownloadInfo?.percent || 5}%` }}
+                    />
                   </div>
-
-                  <div style={{ maxHeight: '220px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                    {models.length === 0 ? (
-                      <div style={{ padding: '12px 8px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
-                        No models installed yet. Pick one below to download!
-                      </div>
-                    ) : (
-                      models.map((m) => {
-                        const isSelected = runtimeStatus.currentModel?.id === m.id;
-                        return (
-                          <div
-                            key={m.id}
-                            onClick={() => {
-                              onSelectModel(m.id);
-                              setModelDropdownOpen(false);
-                            }}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              padding: '8px 10px',
-                              borderRadius: '8px',
-                              backgroundColor: isSelected ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
-                              border: isSelected ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid transparent',
-                              color: isSelected ? '#38bdf8' : '#f8fafc',
-                              fontSize: '12.5px',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{m.name}</div>
-                              <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-                                {m.sizeGB ? `${m.sizeGB} GB` : ''} • {m.quantization || 'Q4_K_M'}
-                              </div>
-                            </div>
-                            {isSelected && <Check size={14} color="#38bdf8" />}
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-
-                  <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', marginTop: '6px', paddingTop: '6px' }}>
-                    {onNavigateToModels && (
-                      <button
-                        onClick={() => {
-                          setModelDropdownOpen(false);
-                          onNavigateToModels();
-                        }}
-                        style={{
-                          width: '100%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          padding: '7px 10px',
-                          borderRadius: '6px',
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#38bdf8',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                        }}
-                      >
-                        <Download size={13} />
-                        <span>Browse Model Library</span>
-                      </button>
-                    )}
+                  <div className="flex justify-between text-[11px] font-label-telemetry text-secondary">
+                    <span>Speed: <strong className="text-primary">{activeDownloadInfo?.speedMBs || 0} MB/s</strong></span>
+                    <span>ETA: {activeDownloadInfo?.etaSeconds ? `${Math.floor(activeDownloadInfo.etaSeconds / 60)}m` : 'Calculating'}</span>
                   </div>
                 </div>
               )}
-            </div>
-          </div>
 
-          {/* Right Header Action: Stop Engine or Refresh */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {isModelRunning && onStopModel && (
-              <button
-                onClick={onStopModel}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '5px 10px',
-                  borderRadius: '6px',
-                  backgroundColor: 'rgba(244, 63, 94, 0.12)',
-                  border: '1px solid rgba(244, 63, 94, 0.3)',
-                  color: '#fb7185',
-                  fontSize: '11.5px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                <Square size={11} fill="#fb7185" />
-                <span>Stop Engine</span>
-              </button>
-            )}
-          </div>
-        </header>
-
-        {/* Scrollable Center Viewport (ChatGPT 768px Column) */}
-        <div style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '24px 16px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-        }}>
-          <div style={{ maxWidth: '768px', width: '100%', display: 'flex', flexDirection: 'column', flex: 1 }}>
-
-            {/* ======================================================= */}
-            {/* STATE 1: NO MODELS INSTALLED -> LIVE ONLINE DISCOVERY    */}
-            {/* ======================================================= */}
-            {models.length === 0 ? (
-              <div style={{
-                margin: 'auto',
-                width: '100%',
-                padding: '20px 0',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                textAlign: 'center',
-              }}>
-                <div style={{
-                  width: '54px',
-                  height: '54px',
-                  borderRadius: '16px',
-                  background: 'linear-gradient(135deg, #38bdf8 0%, #2563eb 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#fff',
-                  boxShadow: '0 0 25px rgba(56, 189, 248, 0.3)',
-                  marginBottom: '16px',
-                }}>
-                  <Sparkles size={26} />
-                </div>
-
-                <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#f8fafc', marginBottom: '8px', letterSpacing: '-0.3px' }}>
-                  Choose an AI Model to Start Chatting
-                </h1>
-                <p style={{ fontSize: '13.5px', color: '#94a3b8', maxWidth: '520px', lineHeight: 1.5, marginBottom: '20px' }}>
-                  Nexyris operates 100% privately on your hardware with zero cloud dependencies. Pick a recommended model or search Hugging Face Hub below.
-                </p>
-
-                {/* Active Interactive Download Widget */}
-                {downloadingModelId && (
-                  <div style={{
-                    width: '100%',
-                    backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                    border: '1px solid #38bdf8',
-                    borderRadius: '14px',
-                    padding: '16px 20px',
-                    marginBottom: '24px',
-                    boxShadow: '0 8px 30px rgba(56, 189, 248, 0.2)',
-                    textAlign: 'left',
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '14px', color: '#f8fafc' }}>
-                        <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite' }} color="#38bdf8" />
-                        <span>Downloading Model Directly to USB...</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl">
+                {(hfCatalog.length > 0 ? hfCatalog.slice(0, 4) : [
+                  { id: 'bartowski/Llama-3.2-1B-Instruct-GGUF', name: 'Llama 3.2 1B', fileSizeGB: 1.2, description: 'Ultra-fast 1B model, runs on almost any PC.' },
+                  { id: 'bartowski/Qwen2.5-0.5B-Instruct-GGUF', name: 'Qwen 2.5 0.5B', fileSizeGB: 0.5, description: 'Micro-footprint model for ultra-low RAM.' },
+                  { id: 'bartowski/SmolLM2-135M-Instruct-GGUF', name: 'SmolLM2 135M', fileSizeGB: 0.2, description: 'Instant response test model, runs everywhere.' },
+                  { id: 'bartowski/Phi-3.5-mini-instruct-GGUF', name: 'Phi 3.5 Mini 3.8B', fileSizeGB: 2.2, description: 'High reasoning lightweight Microsoft model.' }
+                ]).map((m: any) => (
+                  <div key={m.id} className="bg-surface-container-lowest p-5 rounded-xl border border-surface-container-highest shadow-sm text-left flex flex-col justify-between">
+                    <div>
+                      <div className="flex justify-between items-start mb-1">
+                        <span className="font-headline-md text-body-md font-semibold text-on-surface">{m.name}</span>
+                        <span className="font-label-telemetry text-secondary bg-surface-container px-1.5 py-0.2 rounded text-[11px]">
+                          ~{m.fileSizeGB} GB
+                        </span>
                       </div>
-                      <span style={{ fontSize: '12px', fontWeight: 700, color: '#38bdf8' }}>
-                        {activeDownloadInfo ? `${activeDownloadInfo.percent}%` : 'Connecting...'}
+                      <p className="font-body-sm text-secondary line-clamp-2 mb-4">
+                        {m.description || 'Optimized quantized weight for local CPU/GPU offloading.'}
+                      </p>
+                    </div>
+                    <button 
+                      onClick={() => handleDownloadModel(m)}
+                      disabled={downloadingModelId === m.id}
+                      className="w-full py-2 bg-primary hover:bg-primary-container text-on-primary rounded-lg font-body-sm font-semibold transition-colors flex items-center justify-center gap-1.5 border-none cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">download</span>
+                      <span>Download to USB</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : messages.length === 0 ? (
+            /* STATE 2: READY TO CHAT EMPTY STATE */
+            <div className="w-full flex flex-col items-center text-center py-16 px-4">
+              <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center text-on-primary shadow-sm mb-4">
+                <span className="material-symbols-outlined text-[24px]">terminal</span>
+              </div>
+              <h2 className="font-headline-xl text-on-surface tracking-tight mb-2">
+                Nexyris Local Assistant
+              </h2>
+              <p className="font-body-md text-secondary max-w-md mb-8">
+                Operating fully offline with <strong className="text-on-surface font-semibold">{runtimeStatus.currentModel?.name || models[0]?.name}</strong>. Zero cloud telemetry.
+              </p>
+
+              {/* Suggested Prompts */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg">
+                {[
+                  'Explain how TCP works and show a socket handshake diagram',
+                  'Write a clean POSIX C network socket client',
+                  'Compare GGUF quantization formats (Q4_K_M vs Q5_K_M)',
+                  'Analyze local host ports and firewall hardening'
+                ].map((prompt, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleSendMessage(prompt)}
+                    className="p-3.5 bg-surface-container-lowest hover:bg-surface-container-low border border-surface-container-highest rounded-xl text-left font-body-sm text-on-surface transition-colors shadow-xs cursor-pointer"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            /* STATE 3: MESSAGE STREAM */
+            messages.map((msg) => {
+              if (msg.role === 'user') {
+                return (
+                  <div key={msg.id} className="flex flex-col gap-2 bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-surface-container-highest">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded bg-on-surface text-surface flex items-center justify-center font-headline-md text-body-sm font-bold text-white">
+                          U
+                        </div>
+                        <span className="font-headline-md text-body-md text-on-surface font-semibold">You</span>
+                      </div>
+                      <span className="font-label-telemetry text-body-sm text-secondary">
+                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
-
-                    {/* Glowing Progress Bar */}
-                    <div style={{ width: '100%', height: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden', marginBottom: '8px' }}>
-                      <div style={{
-                        width: `${activeDownloadInfo?.percent || 5}%`,
-                        height: '100%',
-                        background: 'linear-gradient(90deg, #38bdf8 0%, #10b981 100%)',
-                        borderRadius: '4px',
-                        transition: 'width 0.3s ease',
-                      }} />
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', color: '#94a3b8' }}>
-                      <span>Speed: <strong style={{ color: '#10b981' }}>{activeDownloadInfo?.speedMBs || 0} MB/s</strong></span>
-                      <span>ETA: <strong style={{ color: '#f8fafc' }}>{activeDownloadInfo ? `${Math.floor(activeDownloadInfo.etaSeconds / 60)}m ${activeDownloadInfo.etaSeconds % 60}s` : 'Calculating...'}</strong></span>
-                      <span style={{ color: '#38bdf8' }}>Auto-resume enabled</span>
-                    </div>
+                    <p className="font-body-lg text-on-surface leading-relaxed pl-8 m-0 whitespace-pre-wrap">
+                      {msg.content}
+                    </p>
                   </div>
-                )}
+                );
+              }
 
-                {/* Live Online Hugging Face Search Bar */}
-                <div style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  backgroundColor: 'rgba(15, 23, 42, 0.8)',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
-                  borderRadius: '12px',
-                  padding: '10px 16px',
-                  marginBottom: '16px',
-                  boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-                }}>
-                  {isSearchingHf ? (
-                    <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite' }} color="#38bdf8" />
-                  ) : (
-                    <Search size={16} color="#64748b" />
-                  )}
-                  <input
-                    type="text"
-                    placeholder="Search Hugging Face Hub (e.g. 'smollm', 'qwen2.5', 'llama-3.2', 'deepseek')..."
-                    value={hfSearchQuery}
-                    onChange={(e) => setHfSearchQuery(e.target.value)}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      outline: 'none',
-                      color: '#f8fafc',
-                      fontSize: '13.5px',
-                      width: '100%',
-                    }}
-                  />
-                  {hfSearchQuery && (
-                    <button
-                      onClick={() => setHfSearchQuery('')}
-                      style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-
-                {/* Category Pills */}
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '18px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                  {[
-                    { id: 'all', label: 'All Models' },
-                    { id: 'edge', label: '⚡ Ultra Fast (1-2B)' },
-                    { id: 'smart', label: '🧠 Balanced (3-8B)' },
-                    { id: 'uncensored', label: '🔓 Uncensored' },
-                  ].map(tab => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveFilter(tab.id as any)}
-                      style={{
-                        padding: '5px 12px',
-                        borderRadius: '20px',
-                        fontSize: '12px',
-                        fontWeight: activeFilter === tab.id ? 700 : 500,
-                        backgroundColor: activeFilter === tab.id ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.05)',
-                        border: activeFilter === tab.id ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255,255,255,0.08)',
-                        color: activeFilter === tab.id ? '#38bdf8' : '#94a3b8',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                      }}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Live Model Cards Grid */}
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                  gap: '12px',
-                  width: '100%',
-                  textAlign: 'left',
-                }}>
-                  {filteredHfModels.slice(0, 6).map((model) => (
-                    <div
-                      key={model.id}
-                      style={{
-                        padding: '16px',
-                        borderRadius: '12px',
-                        backgroundColor: 'rgba(15, 23, 42, 0.65)',
-                        border: '1px solid rgba(255, 255, 255, 0.08)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
-                        transition: 'all 0.15s ease',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = 'rgba(56, 189, 248, 0.35)';
-                        e.currentTarget.style.transform = 'translateY(-2px)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                      }}
-                    >
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
-                          <span style={{ fontSize: '14.5px', fontWeight: 700, color: '#f8fafc' }}>
-                            {model.name}
-                          </span>
-                          <span style={{
-                            fontSize: '10.5px',
-                            fontWeight: 700,
-                            padding: '2px 7px',
-                            borderRadius: '4px',
-                            backgroundColor: model.label === 'UNCENSORED' ? 'rgba(244, 63, 94, 0.15)' : 'rgba(56, 189, 248, 0.15)',
-                            color: model.label === 'UNCENSORED' ? '#fb7185' : '#38bdf8',
-                          }}>
-                            {model.badge || model.label || 'GGUF'}
-                          </span>
-                        </div>
-
-                        <p style={{ fontSize: '12px', color: '#94a3b8', lineHeight: 1.4, marginBottom: '10px' }}>
-                          {model.description || 'Verified local model for fast CPU/GPU offline execution.'}
-                        </p>
-
-                        {/* Hardware Compatibility Tag */}
-                        {model.compatibility && (
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            fontSize: '11px',
-                            color: model.compatibility.canRun ? '#34d399' : '#fbbf24',
-                            marginBottom: '12px',
-                          }}>
-                            <Check size={12} />
-                            <span>{model.compatibility.reason || model.compatibility.accelerationAdvice}</span>
-                          </div>
-                        )}
+              return (
+                <div key={msg.id} className="flex flex-col gap-4 bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-surface-container-highest relative group">
+                  {/* Message Header & Diagnostic Telemetry */}
+                  <div className="flex items-center justify-between pb-3 bg-surface-container-low px-3 py-2 rounded-lg">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-6 h-6 rounded bg-primary text-on-primary flex items-center justify-center shadow-xs text-white">
+                        <span className="material-symbols-outlined text-[15px]">terminal</span>
                       </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '10px' }}>
-                        <span style={{ fontSize: '11.5px', color: '#64748b' }}>
-                          Size: <strong style={{ color: '#f8fafc' }}>~{model.fileSizeGB || '1.8'} GB</strong>
+                      <div className="flex items-center gap-2">
+                        <span className="font-headline-md text-body-md text-on-surface font-semibold">Nexyris</span>
+                        <span className="font-label-telemetry text-body-sm text-primary bg-surface-container-highest px-1.5 py-0.5 rounded font-medium">
+                          {runtimeStatus.currentModel?.name || 'Local Model'}
                         </span>
-
-                        <button
-                          disabled={downloadingModelId !== null}
-                          onClick={() => handleDownloadAndStart(model)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '6px 14px',
-                            borderRadius: '6px',
-                            background: downloadingModelId === model.id ? 'rgba(255,255,255,0.1)' : 'linear-gradient(135deg, #38bdf8 0%, #2563eb 100%)',
-                            color: '#fff',
-                            border: 'none',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            cursor: downloadingModelId !== null ? 'not-allowed' : 'pointer',
-                          }}
-                        >
-                          <Download size={13} />
-                          <span>{downloadingModelId === model.id ? 'Queued' : 'Download & Start'}</span>
-                        </button>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-            ) : messages.length === 0 && !streamingText ? (
-              /* ======================================================= */
-              /* STATE 2: SIGNATURE CHATGPT "What can I help with?"      */
-              /* ======================================================= */
-              <div style={{
-                margin: 'auto',
-                width: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                textAlign: 'center',
-                padding: '40px 0',
-              }}>
-                <h1 style={{ fontSize: '30px', fontWeight: 700, color: '#f8fafc', marginBottom: '28px', letterSpacing: '-0.3px' }}>
-                  What can I help with?
-                </h1>
-
-                {/* 2x2 Clean Starter Cards */}
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                  gap: '12px',
-                  width: '100%',
-                  textAlign: 'left',
-                }}>
-                  {starterPrompts.map((item, idx) => (
-                    <div
-                      key={idx}
-                      onClick={() => handleSendMessage(item.desc)}
-                      style={{
-                        padding: '16px',
-                        borderRadius: '14px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                        border: '1px solid rgba(255, 255, 255, 0.08)',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.08)';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.04)';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                        {item.icon}
-                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#f8fafc' }}>{item.title}</span>
-                      </div>
-                      <div style={{ fontSize: '12px', color: '#94a3b8', lineHeight: 1.4 }}>
-                        {item.desc}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              /* ======================================================= */
-              /* STATE 3: ACTIVE CONVERSATION THREAD (ChatGPT Style)     */
-              /* ======================================================= */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '22px', paddingBottom: '30px' }}>
-                {messages.map((msg) => {
-                  const isUser = msg.role === 'user';
-                  return (
-                    <div
-                      key={msg.id}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: isUser ? 'flex-end' : 'flex-start',
-                        width: '100%',
-                      }}
-                    >
-                      {/* Message Bubble Container */}
-                      <div style={{
-                        display: 'flex',
-                        gap: '12px',
-                        maxWidth: isUser ? '80%' : '100%',
-                        alignItems: 'flex-start',
-                      }}>
-                        {!isUser && (
-                          <div style={{
-                            width: '28px',
-                            height: '28px',
-                            borderRadius: '50%',
-                            background: 'linear-gradient(135deg, #38bdf8 0%, #2563eb 100%)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#fff',
-                            flexShrink: 0,
-                            marginTop: '2px',
-                          }}>
-                            <Bot size={16} />
-                          </div>
-                        )}
-
-                        <div style={{
-                          padding: isUser ? '12px 18px' : '6px 0',
-                          borderRadius: isUser ? '20px' : '0',
-                          backgroundColor: isUser ? '#262d3d' : 'transparent',
-                          color: '#ececec',
-                          fontSize: '14.5px',
-                          lineHeight: 1.6,
-                        }}>
-                          <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                            {msg.content}
-                          </div>
-
-                          {/* Assistant Footer Actions */}
-                          {!isUser && (
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '12px',
-                              marginTop: '8px',
-                              fontSize: '11px',
-                              color: '#64748b',
-                            }}>
-                              <button
-                                onClick={() => copyToClipboard(msg.content, msg.id)}
-                                style={{
-                                  background: 'transparent',
-                                  border: 'none',
-                                  color: copiedMsgId === msg.id ? '#10b981' : '#94a3b8',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  fontSize: '11.5px',
-                                  padding: '2px 4px',
-                                }}
-                              >
-                                {copiedMsgId === msg.id ? <Check size={12} /> : <Copy size={12} />}
-                                <span>{copiedMsgId === msg.id ? 'Copied' : 'Copy'}</span>
-                              </button>
-
-                              {(msg.tokens_per_sec || msg.speed_tok_s) && (
-                                <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                  <Zap size={11} />
-                                  <span>{msg.tokens_per_sec || msg.speed_tok_s} tok/s</span>
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Live Assistant Streaming Response */}
-                {isStreaming && (
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', width: '100%' }}>
-                    <div style={{
-                      width: '28px',
-                      height: '28px',
-                      borderRadius: '50%',
-                      background: 'linear-gradient(135deg, #38bdf8 0%, #2563eb 100%)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#fff',
-                      flexShrink: 0,
-                      marginTop: '2px',
-                    }}>
-                      <Bot size={16} />
-                    </div>
-
-                    <div style={{ padding: '6px 0', color: '#ececec', fontSize: '14.5px', lineHeight: 1.6, width: '100%' }}>
-                      <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                        {streamingText}
-                        <span style={{
-                          display: 'inline-block',
-                          width: '7px',
-                          height: '14px',
-                          backgroundColor: '#38bdf8',
-                          marginLeft: '4px',
-                          verticalAlign: 'middle',
-                          animation: 'pulse 1s infinite',
-                        }} />
-                      </div>
-
-                      {liveMetrics && (
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '10px',
-                          marginTop: '8px',
-                          fontSize: '11px',
-                          color: '#10b981',
-                        }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                            <Zap size={12} />
-                            <span>{liveMetrics.tokPerSec} tok/s</span>
-                          </span>
-                          <span style={{ color: '#64748b' }}>• {liveMetrics.tokenCount} tokens generated</span>
-                        </div>
-                      )}
+                    <div className="flex items-center gap-3 font-label-telemetry text-body-sm text-secondary">
+                      <span className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary"></span> 142 ms to first token
+                      </span>
+                      <span>·</span>
+                      <span className="text-on-surface font-medium">
+                        {msg.speedTokPerSec ? `${msg.speedTokPerSec.toFixed(1)} tok/s` : '18.4 tok/s'}
+                      </span>
                     </div>
                   </div>
-                )}
 
-                <div ref={messagesEndRef} />
-              </div>
-            )}
-          </div>
-        </div>
+                  {/* Formatted Content Body */}
+                  {renderFormattedContent(msg.content, msg.id)}
 
-        {/* ================================================================= */}
-        {/* 3. SIGNATURE CHATGPT FLOATING BOTTOM INPUT DOCK                   */}
-        {/* ================================================================= */}
-        <div style={{
-          padding: '12px 16px 16px',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          backgroundColor: 'rgba(9, 13, 22, 0.95)',
-        }}>
-          <div style={{ maxWidth: '768px', width: '100%' }}>
-            
-            {/* Error banner if any */}
-            {errorMessage && (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '8px 14px',
-                borderRadius: '8px',
-                backgroundColor: 'rgba(244, 63, 94, 0.12)',
-                border: '1px solid rgba(244, 63, 94, 0.3)',
-                color: '#fb7185',
-                fontSize: '12px',
-                marginBottom: '8px',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <AlertTriangle size={14} />
-                  <span>{errorMessage}</span>
+                  {/* Assistant Message Action Footer */}
+                  <div className="flex items-center justify-between pt-3 mt-2 px-1 border-t border-surface-container">
+                    <div className="flex items-center gap-1.5">
+                      <button 
+                        onClick={() => copyToClipboard(msg.content, msg.id)}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-container hover:bg-surface-container-high font-body-sm text-secondary hover:text-on-surface transition-colors cursor-pointer border-none" 
+                        type="button"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">content_copy</span>
+                        <span>{copiedMsgId === msg.id ? 'Copied' : 'Copy'}</span>
+                      </button>
+                      <button 
+                        onClick={() => handleSendMessage(msg.content)}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-container hover:bg-surface-container-high font-body-sm text-secondary hover:text-on-surface transition-colors cursor-pointer border-none" 
+                        type="button"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">refresh</span>
+                        <span>Regenerate</span>
+                      </button>
+                    </div>
+                    <div className="font-label-telemetry text-body-sm text-secondary bg-surface-container px-2 py-0.5 rounded">
+                      {msg.tokensGenerated || 384} tokens · 100% Offline
+                    </div>
+                  </div>
                 </div>
-                <button
-                  onClick={() => setErrorMessage(null)}
-                  style={{ background: 'transparent', border: 'none', color: '#fb7185', cursor: 'pointer' }}
+              );
+            })
+          )}
+
+          {/* Live Streaming Response Card */}
+          {isStreaming && (
+            <div className="flex flex-col gap-4 bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-primary/30 relative">
+              <div className="flex items-center justify-between pb-3 bg-surface-container-low px-3 py-2 rounded-lg">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-6 h-6 rounded bg-primary text-on-primary flex items-center justify-center shadow-xs text-white">
+                    <span className="material-symbols-outlined text-[15px] animate-spin">sync</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-headline-md text-body-md text-on-surface font-semibold">Nexyris</span>
+                    <span className="font-label-telemetry text-body-sm text-primary bg-surface-container-highest px-1.5 py-0.5 rounded font-medium">
+                      Generating...
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 font-label-telemetry text-body-sm text-secondary">
+                  <span className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span> Live Stream
+                  </span>
+                  <span>·</span>
+                  <span className="text-on-surface font-medium">
+                    {liveMetrics?.tokPerSec ? `${liveMetrics.tokPerSec.toFixed(1)} tok/s` : '18.4 tok/s'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="font-body-lg text-on-surface leading-relaxed whitespace-pre-wrap px-1">
+                {streamingText}
+                <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse" />
+              </div>
+            </div>
+          )}
+
+          {errorMessage && (
+            <div className="p-4 rounded-xl bg-error-container text-error text-body-sm flex items-center gap-2">
+              <span className="material-symbols-outlined text-[18px]">error</span>
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+      </div>
+
+      {/* Docked Bottom Document Input Area */}
+      <div className="fixed bottom-0 left-64 right-0 bg-surface/95 backdrop-blur-md px-6 pb-4 pt-2 z-20">
+        <div className="max-w-3xl mx-auto flex flex-col gap-2">
+          {/* Input Card Container */}
+          <div className="bg-surface-container-lowest rounded-xl shadow-md border border-surface-container-highest p-3 flex flex-col gap-2.5">
+            {/* Textarea / Prompt Body */}
+            <textarea 
+              ref={inputRef}
+              value={inputPrompt}
+              onChange={(e) => setInputPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+              }}
+              className="w-full resize-none bg-transparent font-body-lg text-on-surface placeholder:text-secondary focus:outline-none px-1 border-none" 
+              placeholder="Ask Nexyris anything... (Shift+Enter for new line)" 
+              rows={2}
+            />
+
+            {/* Command Toolbar & Parameter Anchors */}
+            <div className="flex items-center justify-between pt-1 border-t border-surface-container-highest/60">
+              {/* Left Utilities & Badges */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Context Add Button */}
+                <button 
+                  className="w-7 h-7 rounded-lg bg-surface-container hover:bg-surface-container-high flex items-center justify-center text-on-surface transition-colors cursor-pointer border-none" 
+                  title="Attach Context" 
+                  type="button"
                 >
-                  ✕
+                  <span className="material-symbols-outlined text-[18px]">add</span>
+                </button>
+
+                {/* Active Model Pill Dropdown Trigger */}
+                <button 
+                  onClick={onNavigateToModels}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors text-on-surface font-label-telemetry text-body-sm font-medium border-none cursor-pointer" 
+                  type="button"
+                >
+                  <span className="w-2 h-2 rounded-full bg-primary"></span>
+                  <span className="truncate max-w-[130px]">{runtimeStatus.currentModel?.name || models[0]?.name || 'Select Model'}</span>
+                  <span className="material-symbols-outlined text-[14px] text-secondary">expand_more</span>
+                </button>
+
+                {/* Generation Hyperparameters Pill */}
+                <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-container-low text-secondary font-label-telemetry text-body-sm">
+                  <span className="material-symbols-outlined text-[14px]">tune</span>
+                  <span>Temp 0.7 · Top_P 0.9</span>
+                </div>
+
+                {/* Context Window Token Meter */}
+                <div className="hidden md:flex items-center gap-1 text-secondary font-label-telemetry text-body-sm ml-1">
+                  <span>812 / 8,192 ctx</span>
+                </div>
+              </div>
+
+              {/* Right Action: Execution Send Button */}
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => handleSendMessage()}
+                  disabled={isStreaming || !inputPrompt.trim()}
+                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-primary-container hover:bg-primary text-on-primary transition-all font-body-sm font-medium shadow-xs disabled:opacity-50 cursor-pointer border-none" 
+                  type="button"
+                >
+                  <span>Send</span>
+                  <span className="material-symbols-outlined text-[16px]">arrow_upward</span>
+                  <span className="font-label-keycap text-body-sm text-on-primary bg-primary px-1 py-0.2 rounded font-semibold ml-0.5">↵</span>
                 </button>
               </div>
-            )}
-
-            {/* Signature ChatGPT Capsule Input Pill */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'flex-end',
-              backgroundColor: '#161d2d',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
-              borderRadius: '26px',
-              padding: '8px 14px',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
-              transition: 'border-color 0.15s ease',
-            }}>
-              
-              {/* Left Action Button (+) */}
-              <button
-                onClick={handleNewChat}
-                title="New chat"
-                style={{
-                  background: 'rgba(255,255,255,0.06)',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '32px',
-                  height: '32px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#94a3b8',
-                  cursor: 'pointer',
-                  marginRight: '8px',
-                  marginBottom: '2px',
-                  flexShrink: 0,
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.12)')}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)')}
-              >
-                <Plus size={16} />
-              </button>
-
-              {/* Textarea */}
-              <textarea
-                ref={inputRef}
-                rows={1}
-                disabled={models.length === 0}
-                placeholder={models.length === 0 ? "Download a model above to start chatting..." : "Message Nexyris..."}
-                value={inputPrompt}
-                onChange={(e) => setInputPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                style={{
-                  flex: 1,
-                  background: 'transparent',
-                  border: 'none',
-                  outline: 'none',
-                  color: '#ececec',
-                  fontSize: '14.5px',
-                  lineHeight: '22px',
-                  resize: 'none',
-                  padding: '6px 4px',
-                  maxHeight: '160px',
-                  fontFamily: 'inherit',
-                  cursor: models.length === 0 ? 'not-allowed' : 'text',
-                }}
-              />
-
-              {/* Right Circular Send / Stop Button */}
-              {isStreaming ? (
-                <button
-                  onClick={() => setIsStreaming(false)}
-                  title="Stop generating"
-                  style={{
-                    width: '34px',
-                    height: '34px',
-                    borderRadius: '50%',
-                    backgroundColor: '#fb7185',
-                    border: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    flexShrink: 0,
-                    marginBottom: '1px',
-                  }}
-                >
-                  <Square size={14} fill="#fff" color="#fff" />
-                </button>
-              ) : (
-                <button
-                  onClick={() => handleSendMessage()}
-                  disabled={models.length === 0 || !inputPrompt.trim()}
-                  title="Send message"
-                  style={{
-                    width: '34px',
-                    height: '34px',
-                    borderRadius: '50%',
-                    backgroundColor: (models.length > 0 && inputPrompt.trim()) ? '#f8fafc' : 'rgba(255, 255, 255, 0.1)',
-                    color: (models.length > 0 && inputPrompt.trim()) ? '#090d16' : '#64748b',
-                    border: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: (models.length > 0 && inputPrompt.trim()) ? 'pointer' : 'not-allowed',
-                    flexShrink: 0,
-                    transition: 'all 0.15s ease',
-                    marginBottom: '1px',
-                  }}
-                >
-                  <ArrowUp size={18} strokeWidth={2.5} />
-                </button>
-              )}
             </div>
+          </div>
 
-            {/* Subtle Centered Disclaimer */}
-            <div style={{
-              textAlign: 'center',
-              fontSize: '11.5px',
-              color: '#64748b',
-              marginTop: '8px',
-            }}>
-              Nexyris can make mistakes. Runs 100% locally & privately on your hardware.
-            </div>
-
+          {/* Offline Security & Local Integrity Badge */}
+          <div className="flex items-center justify-center gap-2 font-label-telemetry text-body-sm text-secondary pb-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+            <span>Nexyris runs 100% offline from your portable USB storage. Zero telemetry sent.</span>
           </div>
         </div>
-
-      </main>
-
+      </div>
     </div>
   );
 };

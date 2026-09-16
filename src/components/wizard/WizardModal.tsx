@@ -11,7 +11,8 @@ import {
   AlertTriangle,
   Play,
   Layers,
-  Zap
+  Zap,
+  X
 } from 'lucide-react';
 import { HardwareInfo, StorageInfo, ModelItem } from '../../types';
 import { queueDownload, updatePortableConfig } from '../../lib/api';
@@ -87,8 +88,8 @@ export const WizardModal: React.FC<WizardModalProps> = ({
     <div style={{
       position: 'fixed',
       inset: 0,
-      backgroundColor: 'rgba(5, 8, 16, 0.88)',
-      backdropFilter: 'blur(20px)',
+      backgroundColor: 'rgba(15, 23, 42, 0.45)',
+      backdropFilter: 'blur(12px)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -101,6 +102,7 @@ export const WizardModal: React.FC<WizardModalProps> = ({
         flexDirection: 'column',
         overflow: 'hidden',
         border: '1px solid var(--border-card)',
+        backgroundColor: '#ffffff',
       }}>
         {/* Header Steps Progress Bar */}
         <div style={{
@@ -109,39 +111,59 @@ export const WizardModal: React.FC<WizardModalProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          backgroundColor: 'rgba(0,0,0,0.2)',
+          backgroundColor: '#f8fafc',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{
               width: '28px',
               height: '28px',
               borderRadius: 'var(--radius-sm)',
-              background: 'linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%)',
+              background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
             }}>
               <Usb size={16} color="white" />
             </div>
-            <span style={{ fontSize: '14px', fontWeight: 700 }}>Nexyris Setup Wizard</span>
+            <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>Nexyris Setup Wizard</span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
             <span>Step {step} of 6</span>
             <div style={{
               width: '120px',
               height: '4px',
-              backgroundColor: 'rgba(255,255,255,0.1)',
+              backgroundColor: '#e2e8f0',
               borderRadius: '2px',
               overflow: 'hidden',
             }}>
               <div style={{
                 height: '100%',
                 width: `${(step / 6) * 100}%`,
-                backgroundColor: '#3b82f6',
+                backgroundColor: '#dc2626',
                 transition: 'width 0.3s ease',
               }}></div>
             </div>
+
+            <button
+              onClick={onComplete}
+              title="Close Wizard"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--text-muted)',
+                padding: '4px',
+                borderRadius: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = '#dc2626'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+            >
+              <X size={16} />
+            </button>
           </div>
         </div>
 
@@ -154,18 +176,18 @@ export const WizardModal: React.FC<WizardModalProps> = ({
                 width: '70px',
                 height: '70px',
                 borderRadius: '50%',
-                background: 'linear-gradient(135deg, rgba(59,130,246,0.2) 0%, rgba(6,182,212,0.2) 100%)',
-                border: '1px solid rgba(59,130,246,0.4)',
+                background: 'linear-gradient(135deg, rgba(220,38,38,0.15) 0%, rgba(239,68,68,0.15) 100%)',
+                border: '1px solid rgba(220,38,38,0.3)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 margin: '0 auto 24px',
-                boxShadow: '0 0 30px rgba(59,130,246,0.3)',
+                boxShadow: '0 0 30px rgba(220,38,38,0.15)',
               }}>
-                <Zap size={36} color="#60a5fa" />
+                <Zap size={36} color="#dc2626" />
               </div>
 
-              <h2 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '12px' }}>
+              <h2 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '12px', color: 'var(--text-primary)' }}>
                 Welcome to Nexyris Local
               </h2>
 
@@ -177,7 +199,7 @@ export const WizardModal: React.FC<WizardModalProps> = ({
                 maxWidth: '460px',
                 margin: '0 auto 32px',
                 textAlign: 'left',
-                backgroundColor: 'rgba(0,0,0,0.25)',
+                backgroundColor: '#f8fafc',
                 padding: '18px 24px',
                 borderRadius: 'var(--radius-md)',
                 border: '1px solid var(--border-subtle)',
@@ -187,19 +209,19 @@ export const WizardModal: React.FC<WizardModalProps> = ({
                 fontSize: '13.5px',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)' }}>
-                  <CheckCircle2 size={16} color="#10b981" />
+                  <CheckCircle2 size={16} color="#059669" />
                   <span>Inspect host computer hardware & storage</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)' }}>
-                  <CheckCircle2 size={16} color="#10b981" />
+                  <CheckCircle2 size={16} color="#059669" />
                   <span>Recommend optimal models for your RAM/CPU</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)' }}>
-                  <CheckCircle2 size={16} color="#10b981" />
+                  <CheckCircle2 size={16} color="#059669" />
                   <span>Download & store models directly on your USB drive</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)' }}>
-                  <CheckCircle2 size={16} color="#10b981" />
+                  <CheckCircle2 size={16} color="#059669" />
                   <span>100% private, zero cloud tracking, works offline</span>
                 </div>
               </div>
@@ -214,7 +236,7 @@ export const WizardModal: React.FC<WizardModalProps> = ({
           {/* Step 2: Storage Check */}
           {step === 2 && (
             <div>
-              <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '6px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '6px', color: 'var(--text-primary)' }}>
                 Portable Storage Check
               </h3>
               <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', marginBottom: '24px' }}>
@@ -227,8 +249,8 @@ export const WizardModal: React.FC<WizardModalProps> = ({
                     <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
                       Portable Drive Location
                     </div>
-                    <div style={{ fontSize: '16px', fontWeight: 700, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <HardDrive size={18} color="#60a5fa" />
+                    <div style={{ fontSize: '16px', fontWeight: 700, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
+                      <HardDrive size={18} color="#dc2626" />
                       <span>{storage?.rootPath || 'USB Storage'}</span>
                     </div>
                   </div>
@@ -238,34 +260,34 @@ export const WizardModal: React.FC<WizardModalProps> = ({
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-                  <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
+                  <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border-subtle)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
                     <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Drive Letter & Type</div>
-                    <div style={{ fontSize: '15px', fontWeight: 600, marginTop: '4px' }}>
+                    <div style={{ fontSize: '15px', fontWeight: 600, marginTop: '4px', color: 'var(--text-primary)' }}>
                       {storage?.driveLetter} ({storage?.fileSystem})
                     </div>
                   </div>
 
-                  <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
+                  <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border-subtle)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
                     <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Total Capacity</div>
-                    <div style={{ fontSize: '15px', fontWeight: 600, marginTop: '4px' }}>
+                    <div style={{ fontSize: '15px', fontWeight: 600, marginTop: '4px', color: 'var(--text-primary)' }}>
                       {storage?.totalGB} GB
                     </div>
                   </div>
 
-                  <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
+                  <div style={{ backgroundColor: '#f8fafc', border: '1px solid var(--border-subtle)', padding: '14px', borderRadius: 'var(--radius-md)' }}>
                     <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Available Space</div>
-                    <div style={{ fontSize: '15px', fontWeight: 700, color: '#10b981', marginTop: '4px' }}>
+                    <div style={{ fontSize: '15px', fontWeight: 700, color: '#059669', marginTop: '4px' }}>
                       {storage?.freeGB} GB Free
                     </div>
                   </div>
                 </div>
 
                 {/* Storage bar */}
-                <div style={{ height: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{ height: '8px', backgroundColor: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
                   <div style={{
                     height: '100%',
                     width: `${Math.min(100, Math.max(5, 100 - (storage?.freePercentage || 50)))}%`,
-                    background: 'linear-gradient(90deg, #10b981 0%, #3b82f6 100%)',
+                    background: 'linear-gradient(90deg, #dc2626 0%, #ef4444 100%)',
                   }}></div>
                 </div>
               </div>
@@ -322,10 +344,10 @@ export const WizardModal: React.FC<WizardModalProps> = ({
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '4px' }}>
                     SYSTEM MEMORY (RAM)
                   </div>
-                  <div style={{ fontSize: '14.5px', fontWeight: 600, color: '#60a5fa' }}>
+                  <div style={{ fontSize: '14.5px', fontWeight: 600, color: 'var(--text-primary)' }}>
                     {hardware?.ram.totalGB} GB RAM
                   </div>
-                  <div style={{ fontSize: '11px', color: '#10b981', marginTop: '4px' }}>
+                  <div style={{ fontSize: '11px', color: '#059669', marginTop: '4px' }}>
                     ✓ Suitable for models up to {hardware?.ram.totalGB && hardware.ram.totalGB >= 16 ? '7B - 14B' : '3B'}
                   </div>
                 </div>
@@ -334,18 +356,18 @@ export const WizardModal: React.FC<WizardModalProps> = ({
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '4px' }}>
                     GPU ACCELERATION
                   </div>
-                  <div style={{ fontSize: '14.5px', fontWeight: 600 }}>
+                  <div style={{ fontSize: '14.5px', fontWeight: 600, color: 'var(--text-primary)' }}>
                     {hardware?.gpu.name}
                   </div>
-                  <div style={{ fontSize: '11px', color: hardware?.gpu.detected ? '#10b981' : 'var(--text-muted)', marginTop: '4px' }}>
+                  <div style={{ fontSize: '11px', color: hardware?.gpu.detected ? '#059669' : 'var(--text-muted)', marginTop: '4px' }}>
                     {hardware?.gpu.acceleration}
                   </div>
                 </div>
               </div>
 
               <div style={{
-                backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                border: '1px solid rgba(59, 130, 246, 0.3)',
+                backgroundColor: '#f8fafc',
+                border: '1px solid var(--border-subtle)',
                 padding: '12px 18px',
                 borderRadius: 'var(--radius-md)',
                 display: 'flex',
@@ -353,7 +375,7 @@ export const WizardModal: React.FC<WizardModalProps> = ({
                 justifyContent: 'space-between',
                 marginBottom: '24px',
               }}>
-                <span style={{ fontSize: '13px', fontWeight: 500 }}>
+                <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)' }}>
                   Assigned Hardware Profile: <strong>{hardware?.performanceProfile}</strong>
                 </span>
                 <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
@@ -379,7 +401,7 @@ export const WizardModal: React.FC<WizardModalProps> = ({
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                 <div>
-                  <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '4px' }}>
+                  <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '4px', color: 'var(--text-primary)' }}>
                     Select AI Models for your USB
                   </h3>
                   <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
@@ -388,7 +410,7 @@ export const WizardModal: React.FC<WizardModalProps> = ({
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Selected Storage</div>
-                  <div style={{ fontSize: '15px', fontWeight: 700, color: '#38bdf8' }}>{totalRequiredGB} GB</div>
+                  <div style={{ fontSize: '15px', fontWeight: 700, color: '#dc2626' }}>{totalRequiredGB} GB</div>
                 </div>
               </div>
 
@@ -405,23 +427,23 @@ export const WizardModal: React.FC<WizardModalProps> = ({
                       style={{
                         padding: '14px',
                         borderRadius: 'var(--radius-md)',
-                        backgroundColor: isSelected ? 'rgba(59, 130, 246, 0.15)' : 'rgba(0,0,0,0.3)',
-                        border: isSelected ? '1px solid #3b82f6' : '1px solid var(--border-subtle)',
+                        backgroundColor: isSelected ? 'rgba(220, 38, 38, 0.08)' : '#f8fafc',
+                        border: isSelected ? '1px solid #dc2626' : '1px solid var(--border-subtle)',
                         cursor: 'pointer',
                         transition: 'all var(--transition-fast)',
                         position: 'relative',
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
-                        <div style={{ fontWeight: 700, fontSize: '13.5px' }}>{model.name}</div>
+                        <div style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--text-primary)' }}>{model.name}</div>
                         {compat && (
                           <span style={{
                             fontSize: '10px',
                             fontWeight: 700,
                             padding: '2px 6px',
                             borderRadius: '4px',
-                            backgroundColor: compat.status === 'RECOMMENDED' ? 'rgba(16,185,129,0.2)' : 'rgba(59,130,246,0.2)',
-                            color: compat.status === 'RECOMMENDED' ? '#34d399' : '#60a5fa',
+                            backgroundColor: compat.status === 'RECOMMENDED' ? 'rgba(5,150,105,0.1)' : 'rgba(220,38,38,0.1)',
+                            color: compat.status === 'RECOMMENDED' ? '#059669' : '#dc2626',
                           }}>
                             {compat.badge}
                           </span>
@@ -458,7 +480,7 @@ export const WizardModal: React.FC<WizardModalProps> = ({
           {/* Step 5: Installation & Download Progress */}
           {step === 5 && (
             <div style={{ textAlign: 'center', padding: '20px' }}>
-              <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '8px' }}>
+              <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '8px', color: 'var(--text-primary)' }}>
                 Setting Up Nexyris Portable AI
               </h3>
               <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', marginBottom: '28px' }}>
@@ -467,7 +489,7 @@ export const WizardModal: React.FC<WizardModalProps> = ({
 
               <div style={{
                 height: '10px',
-                backgroundColor: 'rgba(255,255,255,0.1)',
+                backgroundColor: '#e2e8f0',
                 borderRadius: '5px',
                 overflow: 'hidden',
                 maxWidth: '480px',
@@ -476,12 +498,12 @@ export const WizardModal: React.FC<WizardModalProps> = ({
                 <div style={{
                   height: '100%',
                   width: `${installProgress}%`,
-                  background: 'linear-gradient(90deg, #3b82f6 0%, #06b6d4 100%)',
+                  background: 'linear-gradient(90deg, #dc2626 0%, #ef4444 100%)',
                   transition: 'width 0.3s ease',
                 }}></div>
               </div>
 
-              <div style={{ fontSize: '13px', color: '#60a5fa', fontWeight: 600, marginBottom: '24px' }}>
+              <div style={{ fontSize: '13px', color: '#dc2626', fontWeight: 600, marginBottom: '24px' }}>
                 {installProgress}% Completed
               </div>
 

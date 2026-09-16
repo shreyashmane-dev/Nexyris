@@ -121,8 +121,8 @@ export const CodeAssistantView: React.FC = () => {
                 style={{
                   padding: '8px 10px',
                   borderRadius: 'var(--radius-md)',
-                  backgroundColor: isActive ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
-                  color: isActive ? '#60a5fa' : 'var(--text-secondary)',
+                  backgroundColor: isActive ? 'rgba(220, 38, 38, 0.08)' : 'transparent',
+                  color: isActive ? '#dc2626' : 'var(--text-secondary)',
                   fontSize: '13px',
                   fontWeight: 500,
                   cursor: 'pointer',
@@ -161,7 +161,7 @@ export const CodeAssistantView: React.FC = () => {
 
           <div style={{ display: 'flex', gap: '6px' }}>
             <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => handleAiAction('explain')}>
-              <Sparkles size={12} color="#60a5fa" />
+              <Sparkles size={12} color="#dc2626" />
               <span>Explain</span>
             </button>
             <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => handleAiAction('refactor')}>
@@ -204,7 +204,7 @@ export const CodeAssistantView: React.FC = () => {
       <div style={{ width: '380px', display: 'flex', flexDirection: 'column', backgroundColor: 'rgba(11, 16, 28, 0.95)' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600 }}>
-            <Sparkles size={14} color="#38bdf8" />
+            <Sparkles size={14} color="#dc2626" />
             <span>AI Code Analysis</span>
           </div>
 
@@ -228,7 +228,7 @@ export const CodeAssistantView: React.FC = () => {
           {aiResponse ? (
             <div>{aiResponse}</div>
           ) : isGenerating ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#60a5fa' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#dc2626' }}>
               <span className="pulse-dot">⚡</span>
               <span>Generating code insights locally...</span>
             </div>

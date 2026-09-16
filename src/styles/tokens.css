@@ -1,60 +1,77 @@
 :root {
-  /* Color Palette - Deep Slate / Midnight Obsidian */
-  --bg-app: #080c14;
-  --bg-app-gradient: radial-gradient(circle at 50% 0%, #111c35 0%, #080c14 70%);
-  --bg-sidebar: #0b101c;
-  --bg-card: rgba(17, 25, 44, 0.75);
-  --bg-card-hover: rgba(25, 37, 65, 0.85);
-  --bg-card-active: rgba(33, 49, 86, 0.95);
-  --bg-input: rgba(9, 14, 26, 0.8);
-  --bg-modal: rgba(11, 17, 31, 0.96);
-  --bg-terminal: #05070c;
+  /* Nexyris Design System - Surface & Background */
+  --background: #f9f9fa;
+  --surface: #f9f9fa;
+  --surface-bright: #f9f9fa;
+  --surface-dim: #dadadb;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #f3f3f4;
+  --surface-container: #eeeeef;
+  --surface-container-high: #e8e8e9;
+  --surface-container-highest: #e2e2e3;
+  --on-surface: #1a1c1d;
+  --on-surface-variant: #5c3f40;
+  --on-background: #1a1c1d;
 
-  /* Accent Colors */
-  --accent-primary: #3b82f6;       /* Vibrant Electric Blue */
-  --accent-primary-hover: #2563eb;
-  --accent-cyan: #00f0ff;
-  --accent-indigo: #6366f1;
-  --accent-purple: #a855f7;
-  --accent-emerald: #10b981;
+  /* Accent Colors - Primary Crimson Red */
+  --primary: #b80035;
+  --primary-container: #e11d48;
+  --primary-fixed: #ffdada;
+  --primary-fixed-dim: #ffb3b6;
+  --on-primary: #ffffff;
+  --on-primary-container: #fffaf9;
+  --on-primary-fixed: #40000c;
 
-  /* Status Colors */
-  --status-ready: #10b981;        /* Emerald Green */
-  --status-ready-bg: rgba(16, 185, 129, 0.12);
-  --status-warning: #f59e0b;      /* Amber */
-  --status-warning-bg: rgba(245, 158, 11, 0.12);
-  --status-error: #f43f5e;        /* Rose Red */
-  --status-error-bg: rgba(244, 63, 94, 0.12);
-  --status-active: #38bdf8;       /* Sky Blue / Downloading */
-  --status-active-bg: rgba(56, 189, 248, 0.12);
-  --status-offline: #64748b;      /* Slate Gray */
-  --status-offline-bg: rgba(100, 116, 139, 0.15);
+  /* Secondary & Tertiary (Teal/Emerald Offline Status) */
+  --secondary: #5f5e60;
+  --secondary-container: #e5e1e4;
+  --tertiary: #006855;
+  --tertiary-container: #00836c;
+  --tertiary-fixed: #90f5d9;
+  --tertiary-fixed-dim: #74d8bd;
+  --error: #ba1a1a;
+  --error-container: #ffdad6;
+  --outline: #906f70;
+  --outline-variant: #e5bdbe;
 
-  /* Typography */
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --text-link: #38bdf8;
+  /* Legacy & Helper Aliases */
+  --bg-app: #f9f9fa;
+  --bg-app-gradient: #f9f9fa;
+  --bg-sidebar: #f3f3f4;
+  --bg-card: #ffffff;
+  --bg-card-hover: #eeeeef;
+  --bg-card-active: #e2e2e3;
+  --bg-input: #ffffff;
+  --bg-modal: #ffffff;
+  --bg-terminal: #0c0c0e;
 
-  /* Borders & Glassmorphism */
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-card: rgba(255, 255, 255, 0.12);
-  --border-glow: rgba(56, 189, 248, 0.25);
-  --border-focus: rgba(59, 130, 246, 0.6);
-  --glass-blur: blur(20px);
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 16px -2px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 12px 30px -4px rgba(0, 0, 0, 0.7);
-  --shadow-glow: 0 0 25px rgba(56, 189, 248, 0.2);
+  --text-primary: #1a1c1d;
+  --text-secondary: #5f5e60;
+  --text-muted: #8c8c94;
+  --accent-primary: #b80035;
+  --accent-primary-hover: #920028;
+  --accent-red: #e11d48;
+  --accent-black: #1a1c1d;
 
-  /* Radii */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
+  --status-ready: #006855;
+  --status-ready-bg: rgba(0, 104, 85, 0.1);
+  --status-warning: #d97706;
+  --status-warning-bg: rgba(217, 119, 6, 0.1);
+  --status-error: #ba1a1a;
+  --status-error-bg: rgba(186, 26, 26, 0.1);
+  --status-active: #b80035;
+  --status-active-bg: rgba(184, 0, 53, 0.1);
+
+  --border-subtle: #e2e2e3;
+  --border-card: #e2e2e3;
+  --border-focus: #b80035;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
   --radius-full: 9999px;
 
-  /* Transitions */
   --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }

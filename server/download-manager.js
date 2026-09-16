@@ -6,6 +6,10 @@ import { PATHS, toRelativePath } from './dynamic-root.js';
 import { parseGgufHeader } from './gguf-parser.js';
 import { checkRequiredSpace } from './storage.js';
 
+function toSafeFileId(id) {
+  return String(id).replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
 class DownloadManager {
   constructor() {
     this.queue = [];
@@ -42,7 +46,8 @@ class DownloadManager {
         try {
           const infoPath = path.join(PATHS.downloads, file);
           const info = JSON.parse(fs.readFileSync(infoPath, 'utf-8'));
-          const partPath = path.join(PATHS.downloads, `${info.id}.part`);
+          const safeKey = toSafeFileId(info.fileKey || info.id || file.replace(/\.info\.json$/, ''));
+          const partPath = path.join(PATHS.downloads, `${safeKey}.part`);
           const currentSize = fs.existsSync(partPath) ? fs.statSync(partPath).size : 0;
           
           incomplete.push({
@@ -85,8 +90,10 @@ class DownloadManager {
       }
     }
 
+    const safeFileKey = toSafeFileId(id);
     const downloadTask = {
       id,
+      fileKey: safeFileKey,
       name,
       url,
       filename: targetFilename,
@@ -102,8 +109,12 @@ class DownloadManager {
       created: Date.now(),
     };
 
+    if (!fs.existsSync(PATHS.downloads)) {
+      fs.mkdirSync(PATHS.downloads, { recursive: true });
+    }
+
     // Check if partial exists on pendrive
-    const partPath = path.join(PATHS.downloads, `${id}.part`);
+    const partPath = path.join(PATHS.downloads, `${safeFileKey}.part`);
     if (fs.existsSync(partPath)) {
       downloadTask.downloadedBytes = fs.statSync(partPath).size;
       if (downloadTask.totalBytes > 0) {
@@ -112,7 +123,8 @@ class DownloadManager {
     }
 
     // Save task info
-    const infoPath = path.join(PATHS.downloads, `${id}.info.json`);
+    const infoPath = path.join(PATHS.downloads, `${safeFileKey}.info.json`);
+    fs.mkdirSync(path.dirname(infoPath), { recursive: true });
     fs.writeFileSync(infoPath, JSON.stringify(downloadTask, null, 2), 'utf-8');
 
     this.queue.push(downloadTask);
@@ -135,8 +147,11 @@ class DownloadManager {
     task.status = 'downloading';
     task.error = null;
 
-    const partPath = path.join(PATHS.downloads, `${task.id}.part`);
-    const infoPath = path.join(PATHS.downloads, `${task.id}.info.json`);
+    const safeFileKey = task.fileKey || toSafeFileId(task.id);
+    const partPath = path.join(PATHS.downloads, `${safeFileKey}.part`);
+    const infoPath = path.join(PATHS.downloads, `${safeFileKey}.info.json`);
+    fs.mkdirSync(path.dirname(infoPath), { recursive: true });
+    fs.mkdirSync(path.dirname(partPath), { recursive: true });
 
     let startOffset = 0;
     if (fs.existsSync(partPath)) {
@@ -427,8 +442,9 @@ class DownloadManager {
         req.destroy();
         this.activeRequests.delete(id);
       }
-      const partPath = path.join(PATHS.downloads, `${id}.part`);
-      const infoPath = path.join(PATHS.downloads, `${id}.info.json`);
+      const safeFileKey = task.fileKey || toSafeFileId(id);
+      const partPath = path.join(PATHS.downloads, `${safeFileKey}.part`);
+      const infoPath = path.join(PATHS.downloads, `${safeFileKey}.info.json`);
       if (fs.existsSync(partPath)) fs.unlinkSync(partPath);
       if (fs.existsSync(infoPath)) fs.unlinkSync(infoPath);
 

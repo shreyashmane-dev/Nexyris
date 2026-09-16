@@ -1,0 +1,101 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  darkMode: "class",
+  theme: {
+    extend: {
+      colors: {
+        "on-tertiary-fixed": "#002019",
+        "secondary-fixed-dim": "#c8c6c8",
+        "on-secondary-container": "#656466",
+        "surface-container-low": "#f3f3f4",
+        "on-tertiary": "#ffffff",
+        "on-secondary-fixed": "#1c1b1d",
+        "on-primary": "#ffffff",
+        "on-tertiary-container": "#eefff7",
+        "on-surface": "#1a1c1d",
+        "surface-bright": "#f9f9fa",
+        "surface": "#f9f9fa",
+        "on-error-container": "#93000a",
+        "on-surface-variant": "#5c3f40",
+        "tertiary-fixed-dim": "#74d8bd",
+        "inverse-primary": "#ffb3b6",
+        "primary-container": "#e11d48",
+        "on-primary-fixed-variant": "#920028",
+        "inverse-on-surface": "#f0f1f2",
+        "inverse-surface": "#2f3132",
+        "on-secondary": "#ffffff",
+        "surface-tint": "#be0037",
+        "surface-container-lowest": "#ffffff",
+        "surface-dim": "#dadadb",
+        "primary": "#b80035",
+        "secondary": "#5f5e60",
+        "outline-variant": "#e5bdbe",
+        "secondary-container": "#e5e1e4",
+        "on-secondary-fixed-variant": "#474649",
+        "tertiary-fixed": "#90f5d9",
+        "error": "#ba1a1a",
+        "surface-container-highest": "#e2e2e3",
+        "on-background": "#1a1c1d",
+        "on-tertiary-fixed-variant": "#005142",
+        "error-container": "#ffdad6",
+        "outline": "#906f70",
+        "surface-variant": "#e2e2e3",
+        "surface-container": "#eeeeef",
+        "primary-fixed-dim": "#ffb3b6",
+        "secondary-fixed": "#e5e1e4",
+        "tertiary-container": "#00836c",
+        "surface-container-high": "#e8e8e9",
+        "on-error": "#ffffff",
+        "background": "#f9f9fa",
+        "tertiary": "#006855",
+        "on-primary-fixed": "#40000c",
+        "on-primary-container": "#fffaf9",
+        "primary-fixed": "#ffdada"
+      },
+      borderRadius: {
+        "DEFAULT": "0.25rem",
+        "lg": "0.5rem",
+        "xl": "0.75rem",
+        "full": "9999px"
+      },
+      spacing: {
+        "space-xs": "0.25rem",
+        "margin-window": "0.75rem",
+        "gutter-compact": "0.5rem",
+        "space-xl": "2rem",
+        "margin": "1.5rem",
+        "gutter": "1rem",
+        "space-lg": "1.5rem",
+        "space-md": "1rem",
+        "space-sm": "0.5rem"
+      },
+      fontFamily: {
+        "body-md": ["Geist", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
+        "body-sm": ["Geist", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
+        "headline-md": ["Geist", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
+        "label-code": ["JetBrains Mono", "monospace"],
+        "label-telemetry": ["JetBrains Mono", "monospace"],
+        "label-keycap": ["JetBrains Mono", "monospace"],
+        "headline-xl": ["Geist", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
+        "body-lg": ["Geist", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
+        "headline-lg": ["Geist", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"]
+      },
+      fontSize: {
+        "body-md": ["13px", { lineHeight: "20px", letterSpacing: "-0.005em", fontWeight: "400" }],
+        "body-sm": ["12px", { lineHeight: "18px", letterSpacing: "0em", fontWeight: "400" }],
+        "headline-md": ["18px", { lineHeight: "26px", letterSpacing: "-0.02em", fontWeight: "600" }],
+        "label-code": ["12px", { lineHeight: "18px", letterSpacing: "-0.01em", fontWeight: "400" }],
+        "label-telemetry": ["11px", { lineHeight: "14px", letterSpacing: "0.02em", fontWeight: "500" }],
+        "label-keycap": ["10px", { lineHeight: "12px", letterSpacing: "0.04em", fontWeight: "600" }],
+        "headline-xl": ["32px", { lineHeight: "40px", letterSpacing: "-0.03em", fontWeight: "600" }],
+        "body-lg": ["15px", { lineHeight: "24px", letterSpacing: "-0.01em", fontWeight: "400" }],
+        "headline-lg": ["24px", { lineHeight: "32px", letterSpacing: "-0.025em", fontWeight: "600" }]
+      }
+    }
+  },
+  plugins: []
+};
