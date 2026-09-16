@@ -20,10 +20,12 @@ bin/*.txt
 *.log
 config/hosts/*.json
 
-# Database journals and locks
+# Database files, journals and locks
+data/database/*.db
 data/database/*.db-journal
 data/database/*.db-wal
 data/database/*.db-shm
+!data/database/.gitkeep
 data/.heartbeat
 
 # Temporary and scratch files

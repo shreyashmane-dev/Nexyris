@@ -337,6 +337,17 @@ class DownloadManager {
         if (task.status !== 'downloading' && task.status !== 'reconnecting') return;
 
         clearInterval(speedInterval);
+        this.activeRequests.delete(task.id);
+
+        if (reason.includes('404') || reason.includes('Not Found')) {
+          task.status = 'error';
+          task.error = `Model file not found on Hugging Face (HTTP 404). Please check the file name or repository.`;
+          this.activeDownload = null;
+          this.notify('error', task);
+          this.processQueue();
+          return;
+        }
+
         task.retryCount = (task.retryCount || 0) + 1;
         const maxRetries = 10;
 

@@ -91,15 +91,20 @@ export function listConversations() {
 export function createConversation(id, title, modelId) {
   const db = getDatabase();
   const now = new Date().toISOString();
+  const safeId = id || ('conv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7));
   const stmt = db.prepare(`
     INSERT INTO conversations (id, title, model_id, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, title = COALESCE(excluded.title, conversations.title)
   `);
-  stmt.run(id, title || 'New Conversation', modelId || null, now, now);
-  return { id, title: title || 'New Conversation', model_id: modelId, created_at: now, updated_at: now };
+  stmt.run(safeId, title || 'New Conversation', modelId || null, now, now);
+  return { id: safeId, title: title || 'New Conversation', model_id: modelId, created_at: now, updated_at: now };
 }
 
 export function getConversationMessages(conversationId) {
+  if (!conversationId || conversationId === 'undefined' || conversationId === 'null') {
+    return [];
+  }
   const db = getDatabase();
   const stmt = db.prepare(`
     SELECT * FROM messages 
@@ -113,19 +118,33 @@ export function addMessage(id, conversationId, role, content, tokenCount = 0, to
   const db = getDatabase();
   const now = new Date().toISOString();
   
+  // Ensure conversation exists before inserting message to prevent foreign key violation
+  let targetConvId = conversationId;
+  if (!targetConvId || targetConvId === 'undefined' || targetConvId === 'null') {
+    targetConvId = 'conv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+  }
+  
+  const convCheck = db.prepare(`SELECT id FROM conversations WHERE id = ?`).get(targetConvId);
+  if (!convCheck) {
+    createConversation(targetConvId, 'New Chat', modelId);
+  }
+
+  const safeMsgId = id || ('msg-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7));
+
   const stmt = db.prepare(`
     INSERT INTO messages (id, conversation_id, role, content, model_id, token_count, tokens_per_sec, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET content = excluded.content, token_count = excluded.token_count
   `);
-  stmt.run(id, conversationId, role, content, modelId || null, tokenCount, tokPerSec, now);
+  stmt.run(safeMsgId, targetConvId, role, content, modelId || null, tokenCount, tokPerSec, now);
 
   // Update conversation updated_at and optionally model_id
   const updateStmt = db.prepare(`
     UPDATE conversations SET updated_at = ?, model_id = COALESCE(?, model_id) WHERE id = ?
   `);
-  updateStmt.run(now, modelId || null, conversationId);
+  updateStmt.run(now, modelId || null, targetConvId);
 
-  return { id, conversation_id: conversationId, role, content, model_id: modelId, token_count: tokenCount, tokens_per_sec: tokPerSec, created_at: now };
+  return { id: safeMsgId, conversation_id: targetConvId, role, content, model_id: modelId, token_count: tokenCount, tokens_per_sec: tokPerSec, created_at: now };
 }
 
 export function updateConversationTitle(id, title) {

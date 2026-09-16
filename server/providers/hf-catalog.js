@@ -150,11 +150,11 @@ export async function getLiveHuggingFaceModels(forceRefresh = false) {
   }
 
   try {
-    // 1. Fetch live top GGUF models directly from Hugging Face API with generous 15s timeout
+    // 1. Fetch live top GGUF models directly from Hugging Face API with quick 4s timeout
     const url = 'https://huggingface.co/api/models?search=gguf&filter=gguf&sort=downloads&direction=-1&limit=30';
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Nexyris-Local-Studio' },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(4000),
     });
 
     if (!res.ok) throw new Error(`HF API HTTP ${res.status}`);
@@ -215,9 +215,11 @@ export async function getLiveHuggingFaceModels(forceRefresh = false) {
 
     return combined;
   } catch (err) {
-    console.warn('[Catalog] Live Hugging Face API unreachable, using cached presets:', err.message);
-    if (memoryCache && memoryCache.length > 0) return memoryCache;
-    return FALLBACK_PRESETS;
+    lastCacheTime = now; // Prevent immediate retry storm when offline
+    if (!memoryCache || memoryCache.length === 0) {
+      memoryCache = FALLBACK_PRESETS;
+    }
+    return memoryCache;
   }
 }
 

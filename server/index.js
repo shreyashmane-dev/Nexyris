@@ -551,7 +551,7 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'POST' && pathname === '/api/conversations') {
       const body = await parseBody(req);
-      const id = 'conv-' + Date.now();
+      const id = body.id || ('conv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7));
       const created = createConversation(id, body.title, body.modelId);
       return sendJson(res, 200, created);
     }
@@ -564,7 +564,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname.startsWith('/api/conversations/') && pathname.endsWith('/messages')) {
       const convId = pathname.replace('/api/conversations/', '').replace('/messages', '');
       const body = await parseBody(req);
-      const msgId = 'msg-' + Date.now();
+      const msgId = body.id || ('msg-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7));
       const modelId = body.modelId || runtimeManager.currentModel?.id || null;
       const msg = addMessage(msgId, convId, body.role, body.content, body.tokenCount, body.tokPerSec, modelId);
       return sendJson(res, 200, msg);
