@@ -63,16 +63,23 @@ if "%USER_MODE%"=="2" (
 )
 
 echo.
-echo [2/3] Starting Nexyris Local Server on USB...
+echo [2/3] Initializing Nexyris Local Server on USB...
 set "PORT=38192"
-
-:: Start server in background with explicit working directory on USB drive
-start /B "" /D "%NEXYRIS_ROOT%" node "%NEXYRIS_ROOT%\server\index.js"
-
-echo [3/3] Launching Nexyris Studio...
-timeout /t 2 /nobreak >nul
-
 set "APP_URL=http://127.0.0.1:%PORT%"
+
+:: Check if server is already running
+powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:38192/api/system/init' -TimeoutSec 1 -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    echo [INFO] Nexyris Studio Server is already active on port %PORT%.
+) else (
+    echo [INFO] Launching background server process...
+    start "Nexyris Studio Server" /MIN /D "%NEXYRIS_ROOT%" node "%NEXYRIS_ROOT%\server\index.js"
+    echo Waiting for Nexyris Studio engine to be ready...
+    powershell -NoProfile -Command "$ready = $false; for ($i=0; $i -lt 35; $i++) { try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:38192/api/system/init' -TimeoutSec 1 -UseBasicParsing; if ($r.StatusCode -eq 200) { $ready = $true; break } } catch { Start-Sleep -Milliseconds 350 } }; if (-not $ready) { exit 1 }" >nul 2>&1
+)
+
+echo.
+echo [3/3] Opening Nexyris Studio in Browser...
 
 if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" (
     start "" "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" --app="%APP_URL%"
@@ -93,8 +100,9 @@ start "" "%APP_URL%"
 :finish
 echo.
 echo =======================================================
-echo Nexyris Local is running from your USB drive at %APP_URL%
-echo Close this window or use the in-app "Safe Eject" to exit.
+echo Nexyris Local Studio is now running at %APP_URL%
+echo You can safely minimize or close this launcher window.
+echo To safely shut down all services, use in-app "Safe Eject".
 echo =======================================================
 echo.
 pause

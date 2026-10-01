@@ -7,7 +7,11 @@ import {
   Message, 
   TerminalEntry, 
   CodeProject, 
-  RuntimeStatus 
+  RuntimeStatus,
+  UserProfile,
+  UserMemory,
+  WorldPlugin,
+  PluginExecutionResult
 } from '../types';
 
 const API_BASE = '/api';
@@ -181,7 +185,8 @@ export async function streamChatCompletion(
   options?: any,
   onToken?: (data: { text: string; count?: number; tokPerSec?: number; tokenCount?: number }) => void,
   onDone?: (metrics: any) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  onWorldEvent?: (data: any) => void
 ) {
   try {
     const res = await fetch(`${API_BASE}/chat/stream`, {
@@ -221,6 +226,10 @@ export async function streamChatCompletion(
             const event = JSON.parse(trimmed.slice(6));
             if (event.type === 'token' && onToken) {
               onToken(event);
+            } else if (event.type === 'world_event' && onWorldEvent) {
+              onWorldEvent(event.data);
+            } else if (event.type === 'renamed') {
+              window.dispatchEvent(new CustomEvent('nexyris-conversation-renamed', { detail: event }));
             } else if (event.type === 'done' && onDone) {
               onDone(event.metrics);
             } else if (event.type === 'error' && onError) {
@@ -273,6 +282,15 @@ export async function updateConversation(id: string, title: string) {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title }),
+  });
+  return res.json();
+}
+
+export async function generateConversationTitle(id: string, prompt?: string, response?: string): Promise<{ success: boolean; id: string; title: string }> {
+  const res = await fetch(`${API_BASE}/conversations/${id}/generate-title`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, response }),
   });
   return res.json();
 }
@@ -414,3 +432,105 @@ export async function executeCode(code: string, language: string, filename?: str
   });
   return res.json();
 }
+
+// User Profile & Memories
+export async function fetchUserProfile(): Promise<UserProfile> {
+  const res = await fetch(`${API_BASE}/user/profile`);
+  return res.json();
+}
+
+export async function saveUserProfile(profile: Partial<UserProfile>): Promise<UserProfile> {
+  const res = await fetch(`${API_BASE}/user/profile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(profile),
+  });
+  return res.json();
+}
+
+export async function fetchUserMemories(): Promise<UserMemory[]> {
+  const res = await fetch(`${API_BASE}/user/memories`);
+  const data = await res.json();
+  return data.memories || [];
+}
+
+export async function addUserMemory(memory: Partial<UserMemory>): Promise<UserMemory> {
+  const res = await fetch(`${API_BASE}/user/memories`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(memory),
+  });
+  return res.json();
+}
+
+export async function deleteUserMemory(id: string): Promise<{ success: boolean; id: string }> {
+  const res = await fetch(`${API_BASE}/user/memories/${id}`, {
+    method: 'DELETE',
+  });
+  return res.json();
+}
+
+// World Connect Plugins
+export async function fetchPlugins(): Promise<WorldPlugin[]> {
+  const res = await fetch(`${API_BASE}/plugins`);
+  const data = await res.json();
+  return data.plugins || [];
+}
+
+export async function togglePlugin(id: string, enabled: boolean): Promise<{ id: string; enabled: boolean }> {
+  const res = await fetch(`${API_BASE}/plugins/${id}/toggle`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  return res.json();
+}
+
+export async function executePluginTool(pluginId: string, tool: string, params: Record<string, any> = {}): Promise<PluginExecutionResult> {
+  const res = await fetch(`${API_BASE}/plugins/${pluginId}/execute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tool, params }),
+  });
+  return res.json();
+}
+
+export async function createCustomPlugin(pluginData: {
+  name: string;
+  description?: string;
+  category?: string;
+  icon?: string;
+  endpoint: string;
+  method?: string;
+  headers?: any;
+}): Promise<WorldPlugin> {
+  const res = await fetch(`${API_BASE}/plugins`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(pluginData),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to create custom plugin');
+  }
+  return res.json();
+}
+
+export const addCustomPlugin = createCustomPlugin;
+
+export async function deleteCustomPlugin(id: string): Promise<{ success: boolean; id: string }> {
+  const res = await fetch(`${API_BASE}/plugins/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to delete custom plugin');
+  }
+  return res.json();
+}
+
+export const getUserProfile = fetchUserProfile;
+export const getSystemHealth = fetchRuntimeStatus;
+
+
+

@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { AppMode, ModelItem, RuntimeStatus, HardwareInfo } from '../../types';
+import { Sun, Moon, Sparkles } from 'lucide-react';
+import { getStoredTheme, applyTheme, cycleTheme, ThemeMode } from '../../lib/theme';
 
 interface TopBarProps {
   currentMode: AppMode;
@@ -10,6 +12,9 @@ interface TopBarProps {
   onStopModel: () => void;
   onNavigateToModels: () => void;
   onOpenSettings?: () => void;
+  onOpenProfile?: () => void;
+  userName?: string;
+  userEmoji?: string;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -21,10 +26,28 @@ export const TopBar: React.FC<TopBarProps> = ({
   onStopModel,
   onNavigateToModels,
   onOpenSettings,
+  onOpenProfile,
+  userName,
+  userEmoji,
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [theme, setTheme] = useState<ThemeMode>(getStoredTheme());
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const handleThemeEvent = (e: any) => {
+      if (e.detail?.theme && e.detail.theme !== theme) {
+        setTheme(e.detail.theme);
+      }
+    };
+    window.addEventListener('nexyris-theme-change', handleThemeEvent);
+    return () => window.removeEventListener('nexyris-theme-change', handleThemeEvent);
+  }, [theme]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -273,6 +296,22 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span className="font-label-keycap text-[9px] bg-surface-container-highest px-1 py-0.5 rounded">Ctrl+/</span>
         </button>
 
+        {/* Theme Toggle Button */}
+        <button
+          onClick={() => {
+            const next = cycleTheme(theme);
+            applyTheme(next);
+            setTheme(next);
+          }}
+          className="flex items-center justify-center p-1.5 rounded-lg border border-surface-container-highest bg-surface-container-low hover:bg-surface-container-high text-secondary hover:text-on-surface transition-all cursor-pointer shadow-xs"
+          title={`Theme: ${theme.toUpperCase()} (Click to toggle Dark / Light / OLED)`}
+          type="button"
+        >
+          {theme === 'dark' && <Moon size={15} className="text-rose-400" />}
+          {theme === 'light' && <Sun size={15} className="text-amber-500" />}
+          {theme === 'oled' && <Sparkles size={15} className="text-emerald-400" />}
+        </button>
+
         {/* Tune / Settings Link */}
         {onOpenSettings && (
           <button 
@@ -284,10 +323,20 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
         )}
 
-        {/* Avatar Badge */}
-        <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary shadow-xs">
-          <span className="material-symbols-outlined text-on-primary text-[18px]">person</span>
-        </div>
+        {/* User Profile Avatar Trigger */}
+        <button
+          onClick={onOpenProfile}
+          className="flex items-center gap-2 pl-1.5 pr-2.5 py-1 rounded-full bg-surface-container hover:bg-surface-container-high border border-surface-container-highest transition-all cursor-pointer shadow-xs"
+          title="User Profile & AI Memory"
+          type="button"
+        >
+          <div className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs">
+            {userEmoji || '🚀'}
+          </div>
+          <span className="font-body-sm text-xs font-semibold text-on-surface truncate max-w-[100px]">
+            {userName || 'Explorer'}
+          </span>
+        </button>
       </div>
     </header>
   );

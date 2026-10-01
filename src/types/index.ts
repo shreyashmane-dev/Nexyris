@@ -1,4 +1,4 @@
-export type AppMode = 'chat' | 'terminal' | 'code' | 'image' | 'models' | 'downloads' | 'diagnostics' | 'settings';
+export type AppMode = 'dashboard' | 'chat' | 'terminal' | 'code' | 'image' | 'models' | 'downloads' | 'diagnostics' | 'settings' | 'plugins';
 
 export interface StorageInfo {
   rootPath: string;
@@ -163,3 +163,60 @@ export interface RuntimeStatus {
     elapsedMs: number;
   };
 }
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  display_name?: string;
+  title?: string;
+  bio?: string;
+  avatar_emoji?: string;
+  custom_instructions?: string;
+  preferred_model?: string;
+  theme?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface UserMemory {
+  id: string;
+  category: 'preference' | 'fact' | 'project' | 'personal';
+  key: string;
+  value: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PluginToolParameter {
+  type: string;
+  description: string;
+  required?: boolean;
+}
+
+export interface PluginTool {
+  name: string;
+  description: string;
+  parameters?: Record<string, PluginToolParameter>;
+}
+
+export interface WorldPlugin {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  enabled: boolean;
+  isCustom?: boolean;
+  config?: Record<string, any>;
+  tools: PluginTool[];
+}
+
+export interface PluginExecutionResult {
+  success: boolean;
+  pluginId: string;
+  toolName: string;
+  elapsedMs: number;
+  result?: any;
+  error?: string;
+}
+

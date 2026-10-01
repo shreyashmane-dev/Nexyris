@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Download, Pause, X, AlertCircle } from 'lucide-react';
-import { AppMode, HardwareInfo, StorageInfo, ModelItem, RuntimeStatus, DownloadTask } from './types';
+import { AppMode, HardwareInfo, StorageInfo, ModelItem, RuntimeStatus, DownloadTask, UserProfile } from './types';
 import { 
   fetchInitData, 
   fetchStorage, 
@@ -11,7 +11,8 @@ import {
   stopRuntimeModel,
   fetchHuggingFaceCatalog,
   pauseDownload,
-  cancelDownload
+  cancelDownload,
+  fetchUserProfile
 } from './lib/api';
 
 import { Sidebar } from './components/layout/Sidebar';
@@ -28,9 +29,28 @@ import { ModelLibraryView } from './components/models/ModelLibraryView';
 import { DownloadsView } from './components/downloads/DownloadsView';
 import { DiagnosticsView } from './components/diagnostics/DiagnosticsView';
 import { SettingsView } from './components/settings/SettingsView';
+import { PluginsView } from './components/plugins/PluginsView';
+import { UserProfileModal } from './components/profile/UserProfileModal';
+import { DashboardView } from './components/dashboard/DashboardView';
+import { DocumentationModal } from './components/docs/DocumentationModal';
+import { CustomErrorView } from './components/common/CustomErrorView';
+import { applyTheme, getStoredTheme } from './lib/theme';
 
 export const App: React.FC = () => {
-  const [currentMode, setCurrentMode] = useState<AppMode>('chat');
+  const [currentMode, setCurrentMode] = useState<AppMode>(() => {
+    try {
+      const saved = localStorage.getItem('nexyris_current_mode');
+      return (saved as AppMode) || 'dashboard';
+    } catch (e) {
+      return 'dashboard';
+    }
+  });
+
+  const handleSelectMode = (mode: AppMode) => {
+    setCurrentMode(mode);
+    try { localStorage.setItem('nexyris_current_mode', mode); } catch (e) {}
+  };
+
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
   const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [models, setModels] = useState<ModelItem[]>([]);
@@ -52,14 +72,46 @@ export const App: React.FC = () => {
   const [showWizard, setShowWizard] = useState(false);
   const [showShutdownModal, setShowShutdownModal] = useState(false);
   const [isUsbDisconnected, setIsUsbDisconnected] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showDocsModal, setShowDocsModal] = useState(false);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
+    try {
+      const cached = localStorage.getItem('nexyris_cached_profile');
+      return cached ? JSON.parse(cached) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  const handleProfileUpdated = (updated: UserProfile) => {
+    setUserProfile(updated);
+    try { localStorage.setItem('nexyris_cached_profile', JSON.stringify(updated)); } catch (e) {}
+  };
 
   // Chat conversation state
-  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [activeConvId, setActiveConvId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('nexyris_active_conversation') || null;
+    } catch (e) {
+      return null;
+    }
+  });
   const [newChatTrigger, setNewChatTrigger] = useState<number>(0);
 
+  const handleSetActiveConvId = (id: string | null) => {
+    setActiveConvId(id);
+    try {
+      if (id) {
+        localStorage.setItem('nexyris_active_conversation', id);
+      } else {
+        localStorage.removeItem('nexyris_active_conversation');
+      }
+    } catch (e) {}
+  };
+
   const handleNewChat = () => {
-    setCurrentMode('chat');
-    setActiveConvId(null);
+    handleSelectMode('chat');
+    handleSetActiveConvId(null);
     setNewChatTrigger(n => n + 1);
   };
 
@@ -75,6 +127,7 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    applyTheme(getStoredTheme());
     initApp();
 
     // Storage and download polling interval
@@ -96,6 +149,9 @@ export const App: React.FC = () => {
       // Load models
       const mData = await fetchModels();
       setModels(mData.models);
+
+      // Load User Profile
+      fetchUserProfile().then(handleProfileUpdated).catch(() => {});
 
       // Load curated HF catalog
       const hfData = await fetchHuggingFaceCatalog();
@@ -128,12 +184,14 @@ export const App: React.FC = () => {
   const checkRuntimeAndDownloads = async () => {
     try {
       const r = await fetchRuntimeStatus();
-      setRuntimeStatus(r);
+      if (r) setRuntimeStatus(r);
 
       const d = await fetchDownloads();
-      setActiveDownload(d.active);
-      const activeCount = (d.active ? 1 : 0) + d.queue.filter(q => q.status === 'queued').length;
-      setActiveDownloadsCount(activeCount);
+      if (d) {
+        setActiveDownload(d.active || null);
+        const activeCount = (d.active ? 1 : 0) + (d.queue || []).filter(q => q.status === 'queued').length;
+        setActiveDownloadsCount(activeCount);
+      }
     } catch (e) {}
   };
 
@@ -170,7 +228,7 @@ export const App: React.FC = () => {
       {/* Sidebar Navigation */}
       <Sidebar
         currentMode={currentMode}
-        onSelectMode={setCurrentMode}
+        onSelectMode={handleSelectMode}
         storage={storage}
         activeDownloadsCount={activeDownloadsCount}
         modelsCount={models.length}
@@ -178,8 +236,8 @@ export const App: React.FC = () => {
         onNewChat={handleNewChat}
         activeConvId={activeConvId}
         onSelectConversation={(id) => {
-          setActiveConvId(id);
-          setCurrentMode('chat');
+          handleSetActiveConvId(id);
+          handleSelectMode('chat');
         }}
         refreshTrigger={newChatTrigger}
       />
@@ -193,22 +251,34 @@ export const App: React.FC = () => {
           hardware={hardware}
           onSelectModel={handleSelectModel}
           onStopModel={handleStopModel}
-          onNavigateToModels={() => setCurrentMode('models')}
-          onOpenSettings={() => setCurrentMode('settings')}
+          onNavigateToModels={() => handleSelectMode('models')}
+          onOpenSettings={() => handleSelectMode('settings')}
+          onOpenProfile={() => setShowProfileModal(true)}
+          userName={userProfile?.name}
+          userEmoji={userProfile?.avatar_emoji}
         />
 
         {/* View Switcher */}
         <div className="flex-1 flex flex-col overflow-hidden relative">
+          {currentMode === 'dashboard' && (
+            <DashboardView
+              onNavigate={(mode) => handleSelectMode(mode)}
+              onOpenDocs={() => setShowDocsModal(true)}
+              onOpenProfile={() => setShowProfileModal(true)}
+              userProfile={userProfile}
+            />
+          )}
+
           {currentMode === 'chat' && (
             <ChatView
               runtimeStatus={runtimeStatus}
               onSelectModel={handleSelectModel}
               models={models}
-              onNavigateToModels={() => setCurrentMode('models')}
+              onNavigateToModels={() => handleSelectMode('models')}
               onStopModel={handleStopModel}
               onRefreshModels={handleRefreshModels}
               activeConvId={activeConvId}
-              setActiveConvId={setActiveConvId}
+              setActiveConvId={handleSetActiveConvId}
               newChatTrigger={newChatTrigger}
             />
           )}
@@ -260,6 +330,10 @@ export const App: React.FC = () => {
 
         {currentMode === 'settings' && (
           <SettingsView hardware={hardware} />
+        )}
+
+        {currentMode === 'plugins' && (
+          <PluginsView />
         )}
         </div>
 
@@ -389,6 +463,19 @@ export const App: React.FC = () => {
       <USBDisconnectModal
         isDisconnected={isUsbDisconnected}
         onRetry={checkStorageHealth}
+      />
+
+      {/* User Profile & AI Memory Modal */}
+      <UserProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        onProfileUpdated={handleProfileUpdated}
+      />
+
+      {/* Studio Documentation & Manual Modal */}
+      <DocumentationModal
+        isOpen={showDocsModal}
+        onClose={() => setShowDocsModal(false)}
       />
     </div>
   );

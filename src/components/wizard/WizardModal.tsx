@@ -33,9 +33,22 @@ export const WizardModal: React.FC<WizardModalProps> = ({
   curatedModels,
 }) => {
   const [step, setStep] = useState(1);
-  const [selectedModelIds, setSelectedModelIds] = useState<string[]>(['smollm2-135m-instruct']);
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>(() => {
+    if (curatedModels && curatedModels.length > 0) {
+      const lightweight = curatedModels.find(m => (m.fileSizeGB && m.fileSizeGB <= 2.5) || m.badge === 'INSTANT TEST' || m.badge === 'FAST');
+      return [lightweight ? lightweight.id : curatedModels[0].id];
+    }
+    return ['bartowski/Llama-3.2-1B-Instruct-GGUF'];
+  });
   const [isInstalling, setIsInstalling] = useState(false);
   const [installProgress, setInstallProgress] = useState(0);
+
+  React.useEffect(() => {
+    if (curatedModels && curatedModels.length > 0 && selectedModelIds.length === 1 && selectedModelIds[0] === 'smollm2-135m-instruct') {
+      const lightweight = curatedModels.find(m => (m.fileSizeGB && m.fileSizeGB <= 2.5) || m.badge === 'INSTANT TEST' || m.badge === 'FAST');
+      setSelectedModelIds([lightweight ? lightweight.id : curatedModels[0].id]);
+    }
+  }, [curatedModels]);
 
   if (!isOpen) return null;
 
@@ -51,8 +64,8 @@ export const WizardModal: React.FC<WizardModalProps> = ({
 
   const totalRequiredBytes = curatedModels
     .filter(m => selectedModelIds.includes(m.id))
-    .reduce((acc, m) => acc + (m.sizeBytes || 0), 0);
-  const totalRequiredGB = Math.round((totalRequiredBytes / (1024 ** 3)) * 100) / 100;
+    .reduce((acc, m) => acc + (m.sizeBytes || m.fileSizeBytes || Math.round((m.fileSizeGB || 1.2) * (1024 ** 3))), 0);
+  const totalRequiredGB = Math.round((totalRequiredBytes / (1024 ** 3)) * 100) / 100 || 1.2;
 
   const handleStartInstallation = async () => {
     setIsInstalling(true);
@@ -60,15 +73,24 @@ export const WizardModal: React.FC<WizardModalProps> = ({
 
     // Queue selected models
     for (const modelId of selectedModelIds) {
-      const model = curatedModels.find(m => m.id === modelId);
-      if (model && model.downloadUrl) {
+      let model = curatedModels.find(m => m.id === modelId);
+      if (!model && modelId === 'bartowski/Llama-3.2-1B-Instruct-GGUF') {
+        model = {
+          id: 'bartowski/Llama-3.2-1B-Instruct-GGUF',
+          name: 'Llama 3.2 1B Instruct',
+          filename: 'Llama-3.2-1B-Instruct-Q4_K_M.gguf',
+          downloadUrl: 'https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf',
+          fileSizeBytes: 807694464,
+        } as any;
+      }
+      if (model) {
         try {
           await queueDownload({
             id: model.id,
             name: model.name,
             filename: model.filename,
             url: model.downloadUrl,
-            expectedSize: model.sizeBytes,
+            expectedSize: model.sizeBytes || model.fileSizeBytes || Math.round((model.fileSizeGB || 1.2) * (1024 ** 3)),
           });
         } catch (e) {}
       }

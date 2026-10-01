@@ -76,6 +76,39 @@ export function getDatabase() {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      id TEXT PRIMARY KEY DEFAULT 'primary',
+      name TEXT NOT NULL DEFAULT 'Explorer',
+      title TEXT DEFAULT 'Software Engineer',
+      bio TEXT DEFAULT 'Building intelligent software with local offline AI.',
+      avatar_emoji TEXT DEFAULT '⚡',
+      custom_instructions TEXT DEFAULT '',
+      preferred_model TEXT,
+      theme TEXT DEFAULT 'crimson-dark',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS user_memories (
+      id TEXT PRIMARY KEY,
+      category TEXT NOT NULL DEFAULT 'preference',
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS plugins (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      type TEXT NOT NULL DEFAULT 'world',
+      enabled INTEGER DEFAULT 1,
+      config_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   // Migration: Ensure model_id exists in messages table for multi-model history tracking
@@ -84,6 +117,18 @@ export function getDatabase() {
   } catch (e) {
     // Column already present in existing databases
   }
+
+  // Ensure default primary user profile exists
+  try {
+    const existingUser = dbInstance.prepare(`SELECT id FROM user_profiles WHERE id = 'primary'`).get();
+    if (!existingUser) {
+      const now = new Date().toISOString();
+      dbInstance.prepare(`
+        INSERT INTO user_profiles (id, name, title, bio, avatar_emoji, custom_instructions, preferred_model, theme, created_at, updated_at)
+        VALUES ('primary', 'Explorer', 'AI Engineer', 'Building intelligent tools with private local models on portable storage.', '⚡', 'Provide clean, modular code with concise explanations.', null, 'crimson-dark', ?, ?)
+      `).run(now, now);
+    }
+  } catch (e) {}
 
   return dbInstance;
 }
@@ -274,6 +319,129 @@ export function deleteMcpServer(id) {
   db.prepare(`DELETE FROM mcp_servers WHERE id = ?`).run(id);
 }
 
+// User Profile helpers
+export function getUserProfile() {
+  const db = getDatabase();
+  let profile = db.prepare(`SELECT * FROM user_profiles WHERE id = 'primary'`).get();
+  if (!profile) {
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO user_profiles (id, name, title, bio, avatar_emoji, custom_instructions, preferred_model, theme, created_at, updated_at)
+      VALUES ('primary', 'Explorer', 'AI Engineer', 'Building intelligent tools with private local models on portable storage.', '⚡', '', null, 'crimson-dark', ?, ?)
+    `).run(now, now);
+    profile = db.prepare(`SELECT * FROM user_profiles WHERE id = 'primary'`).get();
+  }
+  return profile;
+}
+
+export function saveUserProfile(updates = {}) {
+  const db = getDatabase();
+  const current = getUserProfile();
+  const now = new Date().toISOString();
+
+  const name = updates.name !== undefined ? updates.name : current.name;
+  const title = updates.title !== undefined ? updates.title : current.title;
+  const bio = updates.bio !== undefined ? updates.bio : current.bio;
+  const avatar_emoji = updates.avatar_emoji !== undefined ? updates.avatar_emoji : current.avatar_emoji;
+  const custom_instructions = updates.custom_instructions !== undefined ? updates.custom_instructions : current.custom_instructions;
+  const preferred_model = updates.preferred_model !== undefined ? updates.preferred_model : current.preferred_model;
+  const theme = updates.theme !== undefined ? updates.theme : current.theme;
+
+  db.prepare(`
+    UPDATE user_profiles 
+    SET name = ?, title = ?, bio = ?, avatar_emoji = ?, custom_instructions = ?, preferred_model = ?, theme = ?, updated_at = ?
+    WHERE id = 'primary'
+  `).run(name, title, bio, avatar_emoji, custom_instructions, preferred_model, theme, now);
+
+  return getUserProfile();
+}
+
+// User Memories helpers
+export function listUserMemories() {
+  const db = getDatabase();
+  return db.prepare(`SELECT * FROM user_memories ORDER BY updated_at DESC`).all();
+}
+
+export function addUserMemory(memory) {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const id = memory.id || ('mem-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6));
+  const category = memory.category || 'preference';
+  const key = memory.key || 'Fact';
+  const value = memory.value || '';
+
+  db.prepare(`
+    INSERT INTO user_memories (id, category, key, value, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, category, key, value, now, now);
+
+  return { id, category, key, value, created_at: now, updated_at: now };
+}
+
+export function updateUserMemory(id, memory) {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const existing = db.prepare(`SELECT * FROM user_memories WHERE id = ?`).get(id);
+  if (!existing) throw new Error('Memory not found');
+
+  const category = memory.category !== undefined ? memory.category : existing.category;
+  const key = memory.key !== undefined ? memory.key : existing.key;
+  const value = memory.value !== undefined ? memory.value : existing.value;
+
+  db.prepare(`
+    UPDATE user_memories SET category = ?, key = ?, value = ?, updated_at = ? WHERE id = ?
+  `).run(category, key, value, now, id);
+
+  return { id, category, key, value, created_at: existing.created_at, updated_at: now };
+}
+
+export function deleteUserMemory(id) {
+  const db = getDatabase();
+  db.prepare(`DELETE FROM user_memories WHERE id = ?`).run(id);
+  return { success: true, id };
+}
+
+// Plugin database helpers
+export function listPluginsDb() {
+  const db = getDatabase();
+  return db.prepare(`SELECT * FROM plugins ORDER BY created_at ASC`).all();
+}
+
+export function savePluginDb(plugin) {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const id = plugin.id;
+  const existing = db.prepare(`SELECT id FROM plugins WHERE id = ?`).get(id);
+  const configJson = typeof plugin.config === 'object' ? JSON.stringify(plugin.config) : (plugin.config_json || '{}');
+  const enabled = plugin.enabled ? 1 : 0;
+
+  if (existing) {
+    db.prepare(`
+      UPDATE plugins SET name = ?, description = ?, type = ?, enabled = ?, config_json = ?, updated_at = ?
+      WHERE id = ?
+    `).run(plugin.name, plugin.description || '', plugin.type || 'world', enabled, configJson, now, id);
+  } else {
+    db.prepare(`
+      INSERT INTO plugins (id, name, description, type, enabled, config_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, plugin.name, plugin.description || '', plugin.type || 'world', enabled, configJson, now, now);
+  }
+  return { ...plugin, updated_at: now };
+}
+
+export function togglePluginDb(id, enabled) {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.prepare(`UPDATE plugins SET enabled = ?, updated_at = ? WHERE id = ?`).run(enabled ? 1 : 0, now, id);
+  return { id, enabled: Boolean(enabled) };
+}
+
+export function deletePluginDb(id) {
+  const db = getDatabase();
+  db.prepare(`DELETE FROM plugins WHERE id = ?`).run(id);
+  return { success: true, id };
+}
+
 export function closeDatabase() {
   if (dbInstance) {
     try {
@@ -282,3 +450,4 @@ export function closeDatabase() {
     dbInstance = null;
   }
 }
+

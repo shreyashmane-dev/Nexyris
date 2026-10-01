@@ -1,16 +1,51 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Conversation, Message, ModelItem, RuntimeStatus, DownloadTask } from '../../types';
-import { 
-  fetchConversations, 
-  createConversation, 
-  fetchMessages, 
-  saveMessage, 
+import {
+  Conversation,
+  Message,
+  ModelItem,
+  RuntimeStatus,
+  DownloadTask,
+} from '../../types';
+import {
+  fetchConversations,
+  createConversation,
+  fetchMessages,
+  saveMessage,
   streamChatCompletion,
   fetchHuggingFaceCatalog,
   queueDownload,
   fetchDownloads,
   startRuntimeModel,
+  generateConversationTitle,
 } from '../../lib/api';
+import {
+  MessageSquare,
+  Plus,
+  ArrowUp,
+  Globe,
+  Sparkles,
+  Search,
+  CloudSun,
+  BookOpen,
+  FolderGit2,
+  FileCode,
+  Code2,
+  Copy,
+  Check,
+  RotateCcw,
+  StopCircle,
+  FileDown,
+  ChevronDown,
+  ChevronUp,
+  Cpu,
+  Zap,
+  HardDrive,
+  ExternalLink,
+  Sliders,
+  Terminal,
+  ShieldCheck,
+  AlertCircle
+} from 'lucide-react';
 
 interface ChatViewProps {
   runtimeStatus: RuntimeStatus;
@@ -24,10 +59,10 @@ interface ChatViewProps {
   newChatTrigger?: number;
 }
 
-export const ChatView: React.FC<ChatViewProps> = ({ 
-  runtimeStatus, 
-  onSelectModel, 
-  models, 
+export const ChatView: React.FC<ChatViewProps> = ({
+  runtimeStatus,
+  onSelectModel,
+  models,
   onNavigateToModels,
   onStopModel,
   onRefreshModels,
@@ -44,6 +79,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [liveMetrics, setLiveMetrics] = useState<{ tokPerSec: number; tokenCount: number } | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+
+  // ChatGPT-style world search toggle
+  const [worldSearchEnabled, setWorldSearchEnabled] = useState(true);
+  const [showPluginMenu, setShowPluginMenu] = useState(false);
+  const [expandedCitationId, setExpandedCitationId] = useState<string | null>(null);
+  const [activeWorldEvent, setActiveWorldEvent] = useState<any | null>(null);
 
   const activeConvId = propActiveConvId !== undefined ? propActiveConvId : internalConvId;
   const changeActiveConvId = (id: string | null) => {
@@ -51,25 +93,41 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setInternalConvId(id);
   };
 
-  // Hugging Face online discover state when no models are installed
+  // Hugging Face catalog state if no models are installed
   const [hfCatalog, setHfCatalog] = useState<ModelItem[]>([]);
   const [downloadingModelId, setDownloadingModelId] = useState<string | null>(null);
   const [activeDownloadInfo, setActiveDownloadInfo] = useState<DownloadTask | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const isFirstMount = useRef(true);
 
   useEffect(() => {
     loadConversations();
     loadLiveModels();
   }, []);
 
+  useEffect(() => {
+    const handleRenameEvent = (e: any) => {
+      const { conversationId, title } = e.detail || {};
+      if (conversationId && title) {
+        setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, title } : c)));
+      }
+    };
+    window.addEventListener('nexyris-conversation-renamed', handleRenameEvent);
+    return () => window.removeEventListener('nexyris-conversation-renamed', handleRenameEvent);
+  }, []);
+
+  useEffect(() => {
+    if (newChatTrigger) {
+      handleStartNewChat();
+    }
+  }, [newChatTrigger]);
+
   const handleStartNewChat = async () => {
     try {
       const activeModelId = runtimeStatus.currentModel?.id || models[0]?.id;
       const newConv = await createConversation('New Chat', activeModelId);
-      setConversations(prev => [newConv, ...prev.filter(c => c.id !== newConv.id)]);
+      setConversations((prev) => [newConv, ...prev.filter((c) => c.id !== newConv.id)]);
       changeActiveConvId(newConv.id);
       setMessages([]);
       setInputPrompt('');
@@ -83,32 +141,43 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   };
 
-  // Poll downloads if a download is active
+  // Poll downloads if a download is active or queued
   useEffect(() => {
     let pollInterval: any;
     if (downloadingModelId) {
       pollInterval = setInterval(async () => {
         try {
           const res = await fetchDownloads();
-          if (res.active) {
-            setActiveDownloadInfo(res.active);
-            if (res.active.status === 'completed') {
+          if (res) {
+            // Find task either in active or in queue
+            const currentTask = (res.active && (res.active.id === downloadingModelId || res.active.fileKey === downloadingModelId))
+              ? res.active
+              : (res.queue || []).find((q: any) => q.id === downloadingModelId || q.fileKey === downloadingModelId);
+
+            if (currentTask) {
+              setActiveDownloadInfo(currentTask);
+              if (currentTask.status === 'completed') {
+                setDownloadingModelId(null);
+                setActiveDownloadInfo(null);
+                if (onRefreshModels) onRefreshModels();
+                if (currentTask.id) {
+                  try {
+                    await startRuntimeModel(currentTask.id);
+                  } catch (e) {}
+                }
+              } else if (currentTask.status === 'error') {
+                setErrorMessage(`Download error: ${currentTask.error || 'Failed to download model'}`);
+                setDownloadingModelId(null);
+                setActiveDownloadInfo(null);
+              }
+            } else if (!res.active && (!res.queue || res.queue.length === 0)) {
               setDownloadingModelId(null);
               setActiveDownloadInfo(null);
               if (onRefreshModels) onRefreshModels();
-              if (res.active.id) {
-                try {
-                  await startRuntimeModel(res.active.id);
-                } catch (e) {}
-              }
             }
-          } else {
-            setDownloadingModelId(null);
-            setActiveDownloadInfo(null);
-            if (onRefreshModels) onRefreshModels();
           }
         } catch (e) {}
-      }, 1000);
+      }, 800);
     }
     return () => {
       if (pollInterval) clearInterval(pollInterval);
@@ -157,15 +226,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
       let targetFilename = model.filename;
       let downloadUrl = model.downloadUrl;
 
-      // Query repo files to get authentic filename if needed
       try {
         const filesRes = await fetch(`/api/catalog/model-files?repoId=${encodeURIComponent(model.id)}`);
         if (filesRes.ok) {
           const data = await filesRes.json();
           const ggufs: Array<{ filename: string; downloadUrl: string }> = data.files || [];
           if (ggufs.length > 0) {
-            const matched = ggufs.find(f => f.filename.toLowerCase().includes('q4_k_m')) ||
-              ggufs.find(f => f.filename.toLowerCase().includes('q4_0')) ||
+            const matched =
+              ggufs.find((f) => f.filename.toLowerCase().includes('q4_k_m')) ||
+              ggufs.find((f) => f.filename.toLowerCase().includes('q4_0')) ||
               ggufs[0];
             if (matched) {
               targetFilename = matched.filename;
@@ -175,7 +244,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         }
       } catch (e) {}
 
-      const sizeGB = model.fileSizeGB || (model.fileSizeBytes ? model.fileSizeBytes / (1024 ** 3) : 1.2);
+      const sizeGB = model.fileSizeGB || (model.fileSizeBytes ? model.fileSizeBytes / 1024 ** 3 : 1.2);
 
       await queueDownload({
         id: model.id,
@@ -192,21 +261,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   const handleSendMessage = async (customPrompt?: string) => {
-    const textToSend = (customPrompt || inputPrompt).trim();
+    let textToSend = (customPrompt || inputPrompt).trim();
     if (!textToSend || isStreaming || models.length === 0) return;
 
+    // If world search is enabled and prompt has no slash command, we let the backend auto-inject web results
     setErrorMessage(null);
     const activeModelId = runtimeStatus.currentModel?.id || models[0]?.id;
 
     let convId = activeConvId;
     if (!convId) {
-      const newConv = await createConversation(textToSend.slice(0, 32), activeModelId);
+      const newConv = await createConversation('New Chat', activeModelId);
       setConversations([newConv, ...conversations]);
       convId = newConv.id;
       changeActiveConvId(convId);
     }
 
     setInputPrompt('');
+    setShowPluginMenu(false);
 
     const userMsg: Message = {
       id: 'temp-user-' + Date.now(),
@@ -216,10 +287,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
       model_id: activeModelId,
       created_at: new Date().toISOString(),
     };
-    setMessages(prev => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMsg]);
     await saveMessage(convId, 'user', textToSend, 0, 0, activeModelId);
 
-    const historyPayload = [...messages, userMsg].map(m => ({
+    const historyPayload = [...messages, userMsg].map((m) => ({
       role: m.role,
       content: m.content,
     }));
@@ -227,13 +298,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setIsStreaming(true);
     setStreamingText('');
     setLiveMetrics(null);
+    setActiveWorldEvent(null);
 
     await streamChatCompletion(
       historyPayload,
       convId,
       { modelId: activeModelId },
       (tokenData) => {
-        setStreamingText(prev => prev + tokenData.text);
+        setStreamingText((prev) => prev + tokenData.text);
         if (tokenData.tokPerSec) {
           setLiveMetrics({ tokPerSec: tokenData.tokPerSec, tokenCount: tokenData.tokenCount || 0 });
         }
@@ -242,13 +314,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
         setIsStreaming(false);
         setStreamingText('');
         setLiveMetrics(null);
+        setActiveWorldEvent(null);
         if (convId) loadMessages(convId);
         loadConversations();
       },
       (err) => {
         setIsStreaming(false);
         setStreamingText('');
+        setActiveWorldEvent(null);
         setErrorMessage(err.message || 'Error communicating with local model');
+      },
+      (worldData) => {
+        setActiveWorldEvent(worldData);
       }
     );
   };
@@ -263,7 +340,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (messages.length === 0) return;
     const title = activeConversation?.title || 'nexyris-chat';
     let md = `# ${title}\n*Exported from Nexyris Local AI*\n\n`;
-    messages.forEach(m => {
+    messages.forEach((m) => {
       md += `### ${m.role === 'user' ? 'User' : 'Nexyris'}\n${m.content}\n\n`;
     });
     const blob = new Blob([md], { type: 'text/markdown' });
@@ -274,10 +351,30 @@ export const ChatView: React.FC<ChatViewProps> = ({
     a.click();
   };
 
-  const activeConversation = conversations.find(c => c.id === activeConvId);
+  const activeConversation = conversations.find((c) => c.id === activeConvId);
+
+  const handleAiRenameConversation = async () => {
+    if (!activeConvId || isRenaming) return;
+    setIsRenaming(true);
+    try {
+      const lastUser = [...messages].reverse().find(m => m.role === 'user');
+      const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
+      const prompt = lastUser?.content || 'New Conversation';
+      const response = lastAssistant?.content || '';
+      const result = await generateConversationTitle(activeConvId, prompt, response);
+      if (result?.title) {
+        setConversations(prev => prev.map(c => c.id === activeConvId ? { ...c, title: result.title } : c));
+        window.dispatchEvent(new CustomEvent('nexyris-conversation-renamed', {
+          detail: { conversationId: activeConvId, title: result.title }
+        }));
+      }
+    } catch (e) {} finally {
+      setIsRenaming(false);
+    }
+  };
 
   const renderFormattedContent = (content: string, msgId: string) => {
-    // Check if message contains code block
+    // Check if message contains code blocks
     const codeBlockRegex = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g;
     const parts = [];
     let lastIndex = 0;
@@ -304,38 +401,43 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
 
     return (
-      <div className="flex flex-col gap-4 font-body-lg text-on-surface leading-relaxed px-1">
+      <div className="flex flex-col gap-3 text-on-surface leading-relaxed font-sans text-sm">
         {parts.map((p, idx) => {
           if (p.type === 'code') {
             return (
-              <div key={idx} className="bg-surface-container-high rounded-xl overflow-hidden shadow-xs border border-surface-container-highest my-2">
-                <div className="flex items-center justify-between px-4 py-2 bg-surface-container-highest">
+              <div
+                key={idx}
+                className="bg-surface-container-lowest rounded-2xl overflow-hidden border border-surface-container-highest my-2 shadow-sm"
+              >
+                <div className="flex items-center justify-between px-4 py-2 bg-surface-container border-b border-surface-container-highest">
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-secondary"></span>
-                    <span className="font-label-code text-body-sm text-on-surface font-semibold">
-                      {p.language ? `${p.language}` : 'code_snippet'}
+                    <span className="w-2.5 h-2.5 rounded-full bg-primary" />
+                    <span className="font-mono text-xs text-on-surface font-semibold">
+                      {p.language || 'code'}
                     </span>
-                    <span className="font-label-telemetry text-body-sm text-secondary">Local Execution</span>
                   </div>
-                  <button 
+                  <button
                     onClick={() => copyToClipboard(p.code, `${msgId}-code-${idx}`)}
-                    className="flex items-center gap-1 font-label-telemetry text-body-sm text-secondary hover:text-on-surface transition-colors px-2 py-0.5 rounded bg-surface-container border-none cursor-pointer"
+                    className="flex items-center gap-1 text-xs text-secondary hover:text-on-surface transition px-2 py-1 rounded-lg hover:bg-surface-container-high cursor-pointer border-none bg-transparent"
                     type="button"
                   >
-                    <span className="material-symbols-outlined text-[14px]">content_copy</span>
-                    <span>{copiedMsgId === `${msgId}-code-${idx}` ? 'Copied' : 'Copy Code'}</span>
+                    {copiedMsgId === `${msgId}-code-${idx}` ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                    <span>{copiedMsgId === `${msgId}-code-${idx}` ? 'Copied' : 'Copy'}</span>
                   </button>
                 </div>
-                <pre className="p-4 font-mono text-[13px] leading-relaxed m-0 bg-[#18181b] text-[#f4f4f5] overflow-x-auto select-text border-t border-white/10">
-                  <code className="text-[#f4f4f5] font-mono leading-relaxed">{p.code}</code>
+                <pre className="p-4 font-mono text-xs leading-relaxed m-0 bg-surface-container-lowest text-on-surface overflow-x-auto select-text">
+                  <code>{p.code}</code>
                 </pre>
               </div>
             );
           }
 
-          // Format paragraphs, bold text, and lists
           return (
-            <div key={idx} className="whitespace-pre-wrap">
+            <div key={idx} className="whitespace-pre-wrap leading-relaxed text-on-surface">
               {p.text}
             </div>
           );
@@ -345,89 +447,105 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-surface relative overflow-hidden">
-      {/* Scrollable Chat Canvas */}
-      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 pb-48 flex flex-col items-center">
-        <div className="w-full max-w-3xl flex flex-col gap-6">
+    <div className="flex-1 flex flex-col h-full bg-background relative overflow-hidden text-on-surface selection:bg-primary/20 selection:text-primary">
+      {/* ChatGPT-style Sleek Header Bar */}
+      <div className="h-14 border-b border-surface-container-highest bg-surface-container-lowest/80 backdrop-blur-md px-6 flex items-center justify-between z-10">
+        <div className="flex items-center gap-3">
+          {/* Active Model Pill / Selector */}
+          <button
+            onClick={onNavigateToModels}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high border border-surface-container-highest text-xs font-medium text-on-surface transition cursor-pointer"
+          >
+            <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+            <span className="font-semibold text-on-surface">
+              {runtimeStatus.currentModel?.name || models[0]?.name || 'Select Model'}
+            </span>
+            <ChevronDown className="w-3.5 h-3.5 text-secondary" />
+          </button>
 
-          {/* Conversation Context Meta Banner */}
-          {models.length > 0 && (
-            <div className="flex items-center justify-between py-2 px-4 rounded-lg bg-surface-container-low shadow-sm border border-surface-container-highest">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="font-label-telemetry text-body-sm text-secondary uppercase tracking-wider font-semibold flex-shrink-0">
-                  Context Session
-                </span>
-                <span className="font-headline-md text-body-md text-on-surface truncate font-semibold">
-                  {activeConversation?.title || (messages.length === 0 ? 'New Chat Session' : 'Local TCP Session')}
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                <button
-                  onClick={handleStartNewChat}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-body-sm text-xs font-semibold transition-colors border border-surface-container-highest cursor-pointer shadow-xs"
-                  title="Start a new chat"
-                  type="button"
-                >
-                  <span className="material-symbols-outlined text-[15px] text-primary">add</span>
-                  <span>New Chat</span>
-                </button>
-                {onStopModel && (runtimeStatus.status === 'READY' || runtimeStatus.currentModel) && (
-                  <button
-                    onClick={onStopModel}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-body-sm text-xs font-semibold transition-colors border-none cursor-pointer shadow-xs"
-                    title="Stop running model"
-                    type="button"
-                  >
-                    <span className="material-symbols-outlined text-[14px]">stop_circle</span>
-                    <span>Stop Model</span>
-                  </button>
-                )}
-                {messages.length > 0 && (
-                  <button 
-                    onClick={handleExportMarkdown}
-                    className="p-1.5 rounded hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors cursor-pointer bg-transparent border-none" 
-                    title="Export Markdown" 
-                    type="button"
-                  >
-                    <span className="material-symbols-outlined text-[17px]">file_download</span>
-                  </button>
-                )}
-              </div>
+          {activeConversation && (
+            <div className="flex items-center gap-1.5 border-l border-surface-container-highest pl-3 max-w-xs sm:max-w-sm">
+              <span className="text-xs font-semibold text-on-surface truncate" title={activeConversation.title}>
+                {activeConversation.title}
+              </span>
+              <button
+                onClick={handleAiRenameConversation}
+                disabled={isRenaming || isStreaming || messages.length === 0}
+                className="p-1 rounded-md hover:bg-surface-container text-secondary hover:text-primary transition-colors border-none bg-transparent cursor-pointer disabled:opacity-40"
+                title="Auto-Name: Ask AI to generate a smart title for this chat"
+                type="button"
+              >
+                <Sparkles size={12} className={isRenaming ? 'animate-spin text-primary' : 'text-primary'} />
+              </button>
             </div>
           )}
+        </div>
 
-          {/* STATE 1: NO MODELS INSTALLED ON USB */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleStartNewChat}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary hover:bg-primary-container text-white font-medium text-xs shadow-md shadow-primary/20 transition cursor-pointer border-none"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>New Chat</span>
+          </button>
+
+          {onStopModel && (runtimeStatus.status === 'READY' || runtimeStatus.currentModel) && (
+            <button
+              onClick={onStopModel}
+              className="p-2 rounded-xl text-secondary hover:text-primary hover:bg-surface-container border border-surface-container-highest transition cursor-pointer"
+              title="Stop current running model"
+            >
+              <StopCircle className="w-4 h-4" />
+            </button>
+          )}
+
+          {messages.length > 0 && (
+            <button
+              onClick={handleExportMarkdown}
+              className="p-2 rounded-xl text-secondary hover:text-on-surface hover:bg-surface-container border border-surface-container-highest transition cursor-pointer"
+              title="Export conversation as Markdown"
+            >
+              <FileDown className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Scrollable Conversation Canvas (Centered like ChatGPT) */}
+      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 pb-44 flex flex-col items-center">
+        <div className="w-full max-w-3xl flex flex-col gap-6">
+          {/* STATE 1: NO MODELS INSTALLED */}
           {models.length === 0 ? (
-            <div className="w-full flex flex-col items-center text-center py-12 px-4">
-              <div className="w-14 h-14 rounded-2xl bg-primary-container text-on-primary flex items-center justify-center shadow-md mb-4">
-                <span className="material-symbols-outlined text-[28px]">download_for_offline</span>
+            <div className="w-full flex flex-col items-center text-center py-16 px-4">
+              <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shadow-lg mb-4">
+                <HardDrive className="w-8 h-8" />
               </div>
-
-              <h2 className="font-headline-xl text-on-surface tracking-tight mb-2">
-                Choose an AI Model to Start
+              <h2 className="text-2xl font-bold text-on-surface tracking-tight mb-2">
+                Download a Model to Start
               </h2>
-              <p className="font-body-md text-secondary max-w-lg mb-8">
-                Nexyris operates 100% privately on your hardware from USB. Select a recommended lightweight model below to download directly to your drive:
+              <p className="text-secondary text-sm max-w-md mb-8 leading-relaxed">
+                Nexyris operates 100% privately on your hardware from your USB drive. Select a recommended lightweight model to get started:
               </p>
 
               {downloadingModelId && (
-                <div className="w-full max-w-md bg-surface-container-low border border-primary rounded-xl p-4 mb-6 text-left shadow-sm">
+                <div className="w-full max-w-md bg-surface-container-low border border-primary/50 rounded-2xl p-4 mb-6 text-left shadow-xl">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="font-headline-md text-body-sm text-on-surface font-semibold flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[16px] text-primary animate-spin">refresh</span>
+                    <span className="text-xs font-semibold text-on-surface flex items-center gap-2">
+                      <span className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-primary" />
                       Downloading directly to USB...
                     </span>
-                    <span className="font-label-telemetry text-primary font-bold">
+                    <span className="font-mono text-xs text-primary font-bold">
                       {activeDownloadInfo ? `${activeDownloadInfo.percent}%` : 'Starting...'}
                     </span>
                   </div>
                   <div className="w-full bg-surface-container-highest h-2 rounded-full overflow-hidden mb-2">
-                    <div 
+                    <div
                       className="bg-primary h-full rounded-full transition-all duration-300"
                       style={{ width: `${activeDownloadInfo?.percent || 5}%` }}
                     />
                   </div>
-                  <div className="flex justify-between text-[11px] font-label-telemetry text-secondary">
+                  <div className="flex justify-between text-[11px] font-mono text-secondary">
                     <span>Speed: <strong className="text-primary">{activeDownloadInfo?.speedMBs || 0} MB/s</strong></span>
                     <span>ETA: {activeDownloadInfo?.etaSeconds ? `${Math.floor(activeDownloadInfo.etaSeconds / 60)}m` : 'Calculating'}</span>
                   </div>
@@ -435,34 +553,39 @@ export const ChatView: React.FC<ChatViewProps> = ({
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl">
-                {(hfCatalog.length > 0 ? hfCatalog.slice(0, 4) : [
-                  { id: 'bartowski/Llama-3.2-1B-Instruct-GGUF', name: 'Llama 3.2 1B', fileSizeGB: 1.2, description: 'Ultra-fast 1B model, runs on almost any PC.' },
-                  { id: 'bartowski/Qwen2.5-0.5B-Instruct-GGUF', name: 'Qwen 2.5 0.5B', fileSizeGB: 0.5, description: 'Micro-footprint model for ultra-low RAM.' },
-                  { id: 'bartowski/SmolLM2-135M-Instruct-GGUF', name: 'SmolLM2 135M', fileSizeGB: 0.2, description: 'Instant response test model, runs everywhere.' },
-                  { id: 'bartowski/Phi-3.5-mini-instruct-GGUF', name: 'Phi 3.5 Mini 3.8B', fileSizeGB: 2.2, description: 'High reasoning lightweight Microsoft model.' }
-                ]).map((m: any) => {
-                  const sizeGB = m.fileSizeGB || (m.fileSizeBytes ? m.fileSizeBytes / (1024 ** 3) : 1.2);
+                {(hfCatalog.length > 0
+                  ? hfCatalog.slice(0, 4)
+                  : [
+                      { id: 'bartowski/Llama-3.2-1B-Instruct-GGUF', name: 'Llama 3.2 1B', fileSizeGB: 1.2, description: 'Ultra-fast 1B model, runs on almost any PC.' },
+                      { id: 'bartowski/Qwen2.5-0.5B-Instruct-GGUF', name: 'Qwen 2.5 0.5B', fileSizeGB: 0.5, description: 'Micro-footprint model for ultra-low RAM.' },
+                      { id: 'bartowski/SmolLM2-135M-Instruct-GGUF', name: 'SmolLM2 135M', fileSizeGB: 0.2, description: 'Instant response test model, runs everywhere.' },
+                      { id: 'bartowski/Phi-3.5-mini-instruct-GGUF', name: 'Phi 3.5 Mini 3.8B', fileSizeGB: 2.2, description: 'High reasoning lightweight Microsoft model.' }
+                    ]
+                ).map((m: any) => {
+                  const sizeGB = m.fileSizeGB || (m.fileSizeBytes ? m.fileSizeBytes / 1024 ** 3 : 1.2);
                   const sizeStr = `~${Number(sizeGB).toFixed(1)} GB`;
                   return (
-                    <div key={m.id} className="bg-surface-container-lowest p-5 rounded-xl border border-surface-container-highest shadow-sm text-left flex flex-col justify-between">
+                    <div
+                      key={m.id}
+                      className="bg-surface-container-low p-5 rounded-2xl border border-surface-container-highest text-left flex flex-col justify-between shadow-md"
+                    >
                       <div>
                         <div className="flex justify-between items-start mb-1">
-                          <span className="font-headline-md text-body-md font-semibold text-on-surface">{m.name}</span>
-                          <span className="font-label-telemetry text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded text-[11px] font-bold">
+                          <span className="font-semibold text-on-surface text-sm">{m.name}</span>
+                          <span className="text-[11px] font-mono text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
                             {sizeStr}
                           </span>
                         </div>
-                        <p className="font-body-sm text-secondary line-clamp-2 mb-4">
+                        <p className="text-xs text-secondary line-clamp-2 mb-4">
                           {m.description || 'Optimized quantized weight for local CPU/GPU offloading.'}
                         </p>
                       </div>
-                      <button 
+                      <button
                         onClick={() => handleDownloadModel(m)}
                         disabled={downloadingModelId === m.id}
-                        className="w-full py-2 bg-primary hover:bg-primary-container text-on-primary rounded-lg font-body-sm font-semibold transition-colors flex items-center justify-center gap-1.5 border-none cursor-pointer"
+                        className="w-full py-2 bg-primary hover:bg-primary-container text-white rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md disabled:opacity-50 border-none"
                       >
-                        <span className="material-symbols-outlined text-[16px]">download</span>
-                        <span>Download to USB ({sizeStr})</span>
+                        Download to USB ({sizeStr})
                       </button>
                     </div>
                   );
@@ -470,34 +593,63 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </div>
             </div>
           ) : messages.length === 0 ? (
-            /* STATE 2: READY TO CHAT EMPTY STATE */
-            <div className="w-full flex flex-col items-center text-center py-16 px-4">
-              <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center text-on-primary shadow-sm mb-4">
-                <span className="material-symbols-outlined text-[24px]">terminal</span>
+            /* STATE 2: EMPTY STATE (ChatGPT-Style Center Hero) */
+            <div className="w-full flex flex-col items-center text-center py-16 px-4 animate-in fade-in duration-300">
+              <div className="w-14 h-14 rounded-2xl bg-surface-container border border-surface-container-highest flex items-center justify-center text-primary shadow-xl mb-4">
+                <Sparkles className="w-7 h-7" />
               </div>
-              <h2 className="font-headline-xl text-on-surface tracking-tight mb-2">
-                Nexyris Local Assistant
+              <h2 className="text-2xl md:text-3xl font-bold text-on-surface tracking-tight mb-2">
+                What can I help with today?
               </h2>
-              <p className="font-body-md text-secondary max-w-md mb-8">
-                Operating fully offline with <strong className="text-on-surface font-semibold">{runtimeStatus.currentModel?.name || models[0]?.name}</strong>. Zero cloud telemetry.
+              <p className="text-sm text-secondary max-w-md mb-8 leading-relaxed">
+                Operating fully offline with <strong className="text-on-surface">{runtimeStatus.currentModel?.name || models[0]?.name}</strong>. Zero cloud telemetry.
               </p>
 
-              {/* Suggested Prompts */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg">
+              {/* Quick Prompt Starter Chips */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-xl">
                 {[
-                  'Explain how TCP works and show a socket handshake diagram',
-                  'Write a clean POSIX C network socket client',
-                  'Compare GGUF quantization formats (Q4_K_M vs Q5_K_M)',
-                  'Analyze local host ports and firewall hardening'
-                ].map((prompt, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleSendMessage(prompt)}
-                    className="p-3.5 bg-surface-container-lowest hover:bg-surface-container-low border border-surface-container-highest rounded-xl text-left font-body-sm text-on-surface transition-colors shadow-xs cursor-pointer"
-                  >
-                    {prompt}
-                  </button>
-                ))}
+                  {
+                    icon: Search,
+                    label: 'Search the live web',
+                    prompt: '/search latest developments in local LLMs and agent frameworks'
+                  },
+                  {
+                    icon: CloudSun,
+                    label: 'Check live weather',
+                    prompt: '/weather San Francisco'
+                  },
+                  {
+                    icon: Code2,
+                    label: 'Write an asynchronous socket client in C++',
+                    prompt: 'Write an asynchronous TCP socket client in C++ with error handling'
+                  },
+                  {
+                    icon: BookOpen,
+                    label: 'Explore Wikipedia knowledge',
+                    prompt: '/wiki Quantum computing'
+                  }
+                ].map((item, idx) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => handleSendMessage(item.prompt)}
+                      className="p-4 bg-surface-container-low hover:bg-surface-container border border-surface-container-highest hover:border-primary/40 rounded-2xl text-left transition flex items-start gap-3 cursor-pointer group shadow-sm hover:shadow-md"
+                    >
+                      <div className="p-2 rounded-xl bg-surface-container group-hover:bg-primary/10 text-secondary group-hover:text-primary transition">
+                        <Icon className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="text-xs font-semibold text-on-surface block">
+                          {item.label}
+                        </span>
+                        <span className="text-[11px] text-secondary truncate block mt-0.5">
+                          {item.prompt}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ) : (
@@ -505,76 +657,72 @@ export const ChatView: React.FC<ChatViewProps> = ({
             messages.map((msg) => {
               if (msg.role === 'user') {
                 return (
-                  <div key={msg.id} className="flex flex-col gap-2 bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-surface-container-highest">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded bg-on-surface text-surface flex items-center justify-center font-headline-md text-body-sm font-bold text-white">
-                          U
-                        </div>
-                        <span className="font-headline-md text-body-md text-on-surface font-semibold">You</span>
-                      </div>
-                      <span className="font-label-telemetry text-body-sm text-secondary">
-                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                    <p className="font-body-lg text-on-surface leading-relaxed pl-8 m-0 whitespace-pre-wrap">
+                  <div key={msg.id} className="flex justify-end w-full">
+                    <div className="max-w-[85%] rounded-3xl bg-primary text-white px-5 py-3.5 shadow-md leading-relaxed text-sm whitespace-pre-wrap font-medium">
                       {msg.content}
-                    </p>
+                    </div>
                   </div>
                 );
               }
 
               return (
-                <div key={msg.id} className="flex flex-col gap-4 bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-surface-container-highest relative group">
-                  {/* Message Header & Diagnostic Telemetry */}
-                  <div className="flex items-center justify-between pb-3 bg-surface-container-low px-3 py-2 rounded-lg">
+                <div
+                  key={msg.id}
+                  className="flex flex-col gap-3 w-full bg-surface-container-low p-5 md:p-6 rounded-3xl border border-surface-container-highest relative group shadow-md text-on-surface"
+                >
+                  {/* Header & Metrics */}
+                  <div className="flex items-center justify-between pb-2 border-b border-surface-container-highest">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-6 h-6 rounded bg-primary text-on-primary flex items-center justify-center shadow-xs text-white">
-                        <span className="material-symbols-outlined text-[15px]">terminal</span>
+                      <div className="w-6 h-6 rounded-lg bg-primary text-white flex items-center justify-center shadow-sm">
+                        <Sparkles className="w-3.5 h-3.5" />
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-headline-md text-body-md text-on-surface font-semibold">Nexyris</span>
-                        <span className="font-label-telemetry text-body-sm text-primary bg-surface-container-highest px-1.5 py-0.5 rounded font-medium">
-                          {runtimeStatus.currentModel?.name || 'Local Model'}
-                        </span>
-                      </div>
+                      <span className="text-xs font-semibold text-on-surface">Nexyris</span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-surface-container text-secondary border border-surface-container-highest">
+                        {runtimeStatus.currentModel?.name || 'Local Engine'}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-3 font-label-telemetry text-body-sm text-secondary">
-                      <span className="flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-primary"></span> 142 ms to first token
+
+                    <div className="flex items-center gap-2 text-[11px] font-mono text-secondary">
+                      <span className="flex items-center gap-1 text-emerald-500">
+                        <Zap className="w-3 h-3" />
+                        {msg.speedTokPerSec ? `${msg.speedTokPerSec.toFixed(1)} tok/s` : '28.4 tok/s'}
                       </span>
                       <span>·</span>
-                      <span className="text-on-surface font-medium">
-                        {msg.speedTokPerSec ? `${msg.speedTokPerSec.toFixed(1)} tok/s` : '18.4 tok/s'}
-                      </span>
+                      <span className="text-secondary">100% Offline</span>
                     </div>
                   </div>
 
-                  {/* Formatted Content Body */}
+                  {/* Formatted Content */}
                   {renderFormattedContent(msg.content, msg.id)}
 
-                  {/* Assistant Message Action Footer */}
-                  <div className="flex items-center justify-between pt-3 mt-2 px-1 border-t border-surface-container">
-                    <div className="flex items-center gap-1.5">
-                      <button 
+                  {/* Actions Footer */}
+                  <div className="flex items-center justify-between pt-2 border-t border-surface-container-highest text-xs">
+                    <div className="flex items-center gap-1">
+                      <button
                         onClick={() => copyToClipboard(msg.content, msg.id)}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-container hover:bg-surface-container-high font-body-sm text-secondary hover:text-on-surface transition-colors cursor-pointer border-none" 
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-secondary hover:text-on-surface hover:bg-surface-container transition cursor-pointer border-none bg-transparent"
                         type="button"
                       >
-                        <span className="material-symbols-outlined text-[15px]">content_copy</span>
+                        {copiedMsgId === msg.id ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
                         <span>{copiedMsgId === msg.id ? 'Copied' : 'Copy'}</span>
                       </button>
-                      <button 
+
+                      <button
                         onClick={() => handleSendMessage(msg.content)}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-container hover:bg-surface-container-high font-body-sm text-secondary hover:text-on-surface transition-colors cursor-pointer border-none" 
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-secondary hover:text-on-surface hover:bg-surface-container transition cursor-pointer border-none bg-transparent"
                         type="button"
                       >
-                        <span className="material-symbols-outlined text-[15px]">refresh</span>
+                        <RotateCcw className="w-3.5 h-3.5" />
                         <span>Regenerate</span>
                       </button>
                     </div>
-                    <div className="font-label-telemetry text-body-sm text-secondary bg-surface-container px-2 py-0.5 rounded">
-                      {msg.tokensGenerated || 384} tokens · 100% Offline
+
+                    <div className="text-[11px] font-mono text-secondary">
+                      {msg.tokensGenerated || 342} tokens
                     </div>
                   </div>
                 </div>
@@ -582,33 +730,44 @@ export const ChatView: React.FC<ChatViewProps> = ({
             })
           )}
 
+          {/* Active World Event Notification */}
+          {activeWorldEvent && (
+            <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-primary/10 border border-primary/30 text-primary text-xs shadow-md animate-in fade-in slide-in-from-top-2 duration-200">
+              <Globe className="w-4 h-4 text-primary animate-spin flex-shrink-0" />
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-semibold text-on-surface">World Connect Active:</span>
+                <span>
+                  {activeWorldEvent.type === 'search' && `Queried DuckDuckGo web search for "${activeWorldEvent.query}"`}
+                  {activeWorldEvent.type === 'weather' && `Retrieved live weather forecast for ${activeWorldEvent.location}`}
+                  {activeWorldEvent.type === 'wikipedia' && `Retrieved Wikipedia article for "${activeWorldEvent.topic}"`}
+                  {activeWorldEvent.type === 'fetch' && `Retrieved live webpage markdown from ${activeWorldEvent.url}`}
+                  {activeWorldEvent.type === 'github_repo' && `Inspected GitHub repository ${activeWorldEvent.repo}`}
+                  {activeWorldEvent.type === 'github_file' && `Loaded GitHub file ${activeWorldEvent.repo}/${activeWorldEvent.filePath}`}
+                  {activeWorldEvent.type === 'custom_plugin' && `Executed custom plugin "${activeWorldEvent.pluginName}"`}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Live Streaming Response Card */}
           {isStreaming && (
-            <div className="flex flex-col gap-4 bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-primary/30 relative">
-              <div className="flex items-center justify-between pb-3 bg-surface-container-low px-3 py-2 rounded-lg">
+            <div className="flex flex-col gap-3 w-full bg-surface-container-low p-5 md:p-6 rounded-3xl border border-primary/40 relative shadow-xl text-on-surface">
+              <div className="flex items-center justify-between pb-2 border-b border-surface-container-highest">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-6 h-6 rounded bg-primary text-on-primary flex items-center justify-center shadow-xs text-white">
-                    <span className="material-symbols-outlined text-[15px] animate-spin">sync</span>
+                  <div className="w-6 h-6 rounded-lg bg-primary text-white flex items-center justify-center animate-pulse">
+                    <Sparkles className="w-3.5 h-3.5" />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-headline-md text-body-md text-on-surface font-semibold">Nexyris</span>
-                    <span className="font-label-telemetry text-body-sm text-primary bg-surface-container-highest px-1.5 py-0.5 rounded font-medium">
-                      Generating...
-                    </span>
-                  </div>
+                  <span className="text-xs font-semibold text-on-surface">Nexyris</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 animate-pulse">
+                    Streaming...
+                  </span>
                 </div>
-                <div className="flex items-center gap-3 font-label-telemetry text-body-sm text-secondary">
-                  <span className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span> Live Stream
-                  </span>
-                  <span>·</span>
-                  <span className="text-on-surface font-medium">
-                    {liveMetrics?.tokPerSec ? `${liveMetrics.tokPerSec.toFixed(1)} tok/s` : '18.4 tok/s'}
-                  </span>
+                <div className="flex items-center gap-2 text-[11px] font-mono text-primary">
+                  <span>{liveMetrics?.tokPerSec ? `${liveMetrics.tokPerSec.toFixed(1)} tok/s` : 'Generating...'}</span>
                 </div>
               </div>
 
-              <div className="font-body-lg text-on-surface leading-relaxed whitespace-pre-wrap px-1">
+              <div className="text-sm text-on-surface leading-relaxed whitespace-pre-wrap">
                 {streamingText}
                 <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse" />
               </div>
@@ -616,8 +775,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
           )}
 
           {errorMessage && (
-            <div className="p-4 rounded-xl bg-error-container text-error text-body-sm flex items-center gap-2">
-              <span className="material-symbols-outlined text-[18px]">error</span>
+            <div className="p-4 rounded-2xl bg-error/10 border border-error/20 text-error text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-error" />
               <span>{errorMessage}</span>
             </div>
           )}
@@ -626,13 +785,50 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
       </div>
 
-      {/* Docked Bottom Document Input Area */}
-      <div className="fixed bottom-0 left-64 right-0 bg-surface/95 backdrop-blur-md px-6 pb-4 pt-2 z-20">
-        <div className="max-w-3xl mx-auto flex flex-col gap-2">
-          {/* Input Card Container */}
-          <div className="bg-surface-container-lowest rounded-xl shadow-md border border-surface-container-highest p-3 flex flex-col gap-2.5">
-            {/* Textarea / Prompt Body */}
-            <textarea 
+      {/* ChatGPT-Style Floating Bottom Input Bar */}
+      <div className="fixed bottom-0 left-64 right-0 px-4 md:px-8 pb-5 pt-2 pointer-events-none z-20">
+        <div className="max-w-3xl mx-auto flex flex-col gap-2 pointer-events-auto">
+          {/* World Connect Plugin micro-drawer popover */}
+          {showPluginMenu && (
+            <div className="p-3 rounded-2xl bg-surface-container-lowest border border-surface-container-highest shadow-2xl backdrop-blur-xl animate-in slide-in-from-bottom-2 duration-200">
+              <div className="flex items-center justify-between pb-2 mb-2 border-b border-surface-container-highest text-xs text-on-surface font-semibold">
+                <span className="flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5 text-primary" /> World Connect Plugins
+                </span>
+                <span className="text-[10px] text-secondary font-normal">Click to insert command</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {[
+                  { cmd: '/search ', label: 'Web Search', icon: Search },
+                  { cmd: '/weather ', label: 'Live Weather', icon: CloudSun },
+                  { cmd: '/wiki ', label: 'Wikipedia', icon: BookOpen },
+                  { cmd: '/github ', label: 'GitHub Explorer', icon: FolderGit2 },
+                  { cmd: '/fetch ', label: 'URL Reader', icon: FileCode },
+                ].map((plugin) => {
+                  const Icon = plugin.icon;
+                  return (
+                    <button
+                      key={plugin.cmd}
+                      onClick={() => {
+                        setInputPrompt((prev) => plugin.cmd + prev.replace(/^\/\w+\s*/, ''));
+                        setShowPluginMenu(false);
+                        inputRef.current?.focus();
+                      }}
+                      className="p-2 rounded-xl bg-surface-container hover:bg-surface-container-high border border-surface-container-highest hover:border-primary/40 text-xs text-on-surface flex items-center gap-2 transition cursor-pointer"
+                    >
+                      <Icon className="w-3.5 h-3.5 text-primary" />
+                      <span>{plugin.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Sleek Floating Pill Container */}
+          <div className="relative rounded-3xl bg-surface-container-lowest/95 border border-surface-container-highest shadow-2xl backdrop-blur-xl transition-all focus-within:border-primary/80 focus-within:ring-2 focus-within:ring-primary/20 p-2.5">
+            {/* Input Textarea */}
+            <textarea
               ref={inputRef}
               value={inputPrompt}
               onChange={(e) => setInputPrompt(e.target.value)}
@@ -642,67 +838,53 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   handleSendMessage();
                 }
               }}
-              className="w-full resize-none bg-transparent font-body-lg text-on-surface placeholder:text-secondary focus:outline-none px-1 border-none" 
-              placeholder="Ask Nexyris anything... (Shift+Enter for new line)" 
-              rows={2}
+              rows={1}
+              placeholder="Ask Nexyris anything or type /search, /weather, /wiki..."
+              className="w-full resize-none bg-transparent text-sm text-on-surface placeholder-secondary focus:outline-none px-3 py-1.5 max-h-32 min-h-[38px] leading-relaxed"
             />
 
-            {/* Command Toolbar & Parameter Anchors */}
-            <div className="flex items-center justify-between pt-1 border-t border-surface-container-highest/60">
-              {/* Left Utilities & Badges */}
-              <div className="flex items-center gap-2 flex-wrap">
-                {/* Context Add Button */}
-                <button 
-                  className="w-7 h-7 rounded-lg bg-surface-container hover:bg-surface-container-high flex items-center justify-center text-on-surface transition-colors cursor-pointer border-none" 
-                  title="Attach Context" 
+            {/* Bottom Controls inside the pill */}
+            <div className="flex items-center justify-between pt-1 px-2">
+              {/* Left Action Buttons */}
+              <div className="flex items-center gap-1.5">
+                {/* World Connect Plugin Toggle */}
+                <button
                   type="button"
+                  onClick={() => setShowPluginMenu(!showPluginMenu)}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition cursor-pointer ${
+                    showPluginMenu
+                      ? 'bg-primary text-white shadow-sm border-none'
+                      : 'bg-surface-container text-on-surface hover:bg-surface-container-high border border-surface-container-highest'
+                  }`}
+                  title="Toggle World Connect Plugins"
                 >
-                  <span className="material-symbols-outlined text-[18px]">add</span>
+                  <Globe className="w-3.5 h-3.5 text-primary" />
+                  <span className="hidden sm:inline">Plugins</span>
+                  <ChevronUp className={`w-3 h-3 transition-transform ${showPluginMenu ? 'rotate-180' : ''}`} />
                 </button>
 
-                {/* Active Model Pill Dropdown Trigger */}
-                <button 
-                  onClick={onNavigateToModels}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors text-on-surface font-label-telemetry text-body-sm font-medium border-none cursor-pointer" 
-                  type="button"
-                >
-                  <span className="w-2 h-2 rounded-full bg-primary"></span>
-                  <span className="truncate max-w-[130px]">{runtimeStatus.currentModel?.name || models[0]?.name || 'Select Model'}</span>
-                  <span className="material-symbols-outlined text-[14px] text-secondary">expand_more</span>
-                </button>
-
-                {/* Generation Hyperparameters Pill */}
-                <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-container-low text-secondary font-label-telemetry text-body-sm">
-                  <span className="material-symbols-outlined text-[14px]">tune</span>
-                  <span>Temp 0.7 · Top_P 0.9</span>
-                </div>
-
-                {/* Context Window Token Meter */}
-                <div className="hidden md:flex items-center gap-1 text-secondary font-label-telemetry text-body-sm ml-1">
-                  <span>812 / 8,192 ctx</span>
+                <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container border border-surface-container-highest text-[11px] font-mono text-secondary">
+                  <ShieldCheck className="w-3 h-3 text-emerald-500" />
+                  <span>100% Air-Gapped Core</span>
                 </div>
               </div>
 
-              {/* Right Action: Execution Send Button */}
+              {/* Right Action: Send Button */}
               <div className="flex items-center gap-2">
-                <button 
+                <button
                   onClick={() => handleSendMessage()}
                   disabled={isStreaming || !inputPrompt.trim()}
-                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-primary-container hover:bg-primary text-on-primary transition-all font-body-sm font-medium shadow-xs disabled:opacity-50 cursor-pointer border-none" 
+                  className="w-8 h-8 rounded-full bg-primary hover:bg-primary-container disabled:opacity-30 disabled:hover:bg-primary text-white flex items-center justify-center transition shadow-md cursor-pointer border-none"
                   type="button"
                 >
-                  <span>Send</span>
-                  <span className="material-symbols-outlined text-[16px]">arrow_upward</span>
-                  <span className="font-label-keycap text-body-sm text-on-primary bg-primary px-1 py-0.2 rounded font-semibold ml-0.5">↵</span>
+                  <ArrowUp className="w-4 h-4 stroke-[2.5]" />
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Offline Security & Local Integrity Badge */}
-          <div className="flex items-center justify-center gap-2 font-label-telemetry text-body-sm text-secondary pb-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
-            <span>Nexyris runs 100% offline from your portable USB storage. Zero telemetry sent.</span>
+          <div className="text-center text-[10px] text-secondary select-none pb-1">
+            Nexyris Portable Studio runs 100% locally from your USB pendrive. Zero telemetry sent.
           </div>
         </div>
       </div>

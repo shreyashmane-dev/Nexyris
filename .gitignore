@@ -27,6 +27,7 @@ data/database/*.db-wal
 data/database/*.db-shm
 !data/database/.gitkeep
 data/.heartbeat
+data/catalog-cache.json
 
 # Temporary and scratch files
 temp/*

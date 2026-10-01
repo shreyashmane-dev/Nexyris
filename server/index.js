@@ -23,8 +23,19 @@ import {
   listMcpServers,
   saveMcpServer,
   deleteMcpServer,
+  getUserProfile,
+  saveUserProfile,
+  listUserMemories,
+  addUserMemory,
+  updateUserMemory,
+  deleteUserMemory,
+  listPluginsDb,
+  savePluginDb,
+  togglePluginDb,
+  deletePluginDb,
   closeDatabase
 } from './db.js';
+import { pluginManager } from './plugins/plugin-manager.js';
 import { modelManager } from './model-manager.js';
 import { downloadManager } from './download-manager.js';
 import { runtimeManager } from './runtime-manager.js';
@@ -103,6 +114,38 @@ function sendJson(res, statusCode, data) {
       res.end(JSON.stringify({ error: 'Serialization error' }));
     }
   }
+}
+
+/**
+ * Synthesizes a concise, human-readable title from user prompt and assistant output
+ */
+function generateSmartTitle(prompt, assistantOutput = '') {
+  if (!prompt || typeof prompt !== 'string') return 'New Conversation';
+  let clean = prompt.trim();
+
+  // Strip conversational filler prefixes (multi-pass)
+  clean = clean.replace(/^(hey|hi|hello|please|can you|could you|would you|will you|help me with|help me|tell me|show me|explain to me|explain|i want to|i need to|how to|how do i|how can i|what is|what are|write me a|write me|write|generate a|generate|create a|create|build a|build|give me a|give me|make a|make)\s+/i, '');
+  clean = clean.replace(/^(show me|tell me|explain to me|how to|how do i|how can i|to write|to create|to build|how)\s+/i, '');
+  clean = clean.replace(/^(a|an|the)\s+/i, '');
+  // Strip slash commands like /weather Tokyo -> Tokyo
+  clean = clean.replace(/^[\/!](search|weather|wiki|fetch|github)\s+/i, '');
+  // Strip code block markers
+  clean = clean.replace(/```[a-z]*\s*/gi, '');
+  // Strip trailing punctuation
+  clean = clean.replace(/[\?\.\!\,]+$/, '').trim();
+
+  if (!clean && assistantOutput) {
+    clean = assistantOutput.trim().split('\n')[0].replace(/^[#*-\s]+/, '');
+  }
+
+  const words = clean.split(/\s+/).filter(Boolean).slice(0, 5);
+  if (words.length === 0) return 'New Conversation';
+
+  let title = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  if (title.length > 36) {
+    title = title.slice(0, 33) + '...';
+  }
+  return title;
 }
 
 const server = http.createServer(async (req, res) => {
@@ -221,7 +264,52 @@ const server = http.createServer(async (req, res) => {
     }
 
     // -------------------------------------------------------------
- :O          stderr: stderr || '',
+    // Terminal APIs (Real Portable Shell Execution & History)
+    // -------------------------------------------------------------
+    if (method === 'GET' && pathname === '/api/terminal/history') {
+      const limit = parseInt(url.searchParams.get('limit') || '50', 10);
+      return sendJson(res, 200, getTerminalHistory(limit));
+    }
+
+    if (method === 'POST' && pathname === '/api/terminal/exec') {
+      const body = await parseBody(req);
+      const { command, modelId } = body;
+      if (!command) {
+        return sendJson(res, 400, { error: 'Command is required' });
+      }
+
+      const startTime = Date.now();
+      const isWindows = process.platform === 'win32';
+      const shell = isWindows ? 'powershell.exe' : '/bin/bash';
+
+      exec(command, {
+        cwd: APPLICATION_ROOT,
+        shell,
+        timeout: 30000,
+        maxBuffer: 5 * 1024 * 1024,
+        env: {
+          ...process.env,
+          TEMP: PATHS.temp,
+          TMP: PATHS.temp,
+        }
+      }, (error, stdout, stderr) => {
+        const elapsed = Date.now() - startTime;
+        const exitCode = error ? (error.code ?? 1) : 0;
+        const output = (stdout || '') + (stderr ? (stdout ? '\n' : '') + stderr : '');
+        const entryId = 'term-' + Date.now();
+
+        try {
+          addTerminalCommand(entryId, command, output.trim(), modelId);
+        } catch (dbErr) {
+          console.warn('Failed to log terminal command to SQLite:', dbErr);
+        }
+
+        return sendJson(res, 200, {
+          id: entryId,
+          command,
+          output: output.trim(),
+          stdout: stdout || '',
+          stderr: stderr || '',
           exitCode,
           elapsed,
           cwd: APPLICATION_ROOT,
@@ -423,11 +511,11 @@ const server = http.createServer(async (req, res) => {
     // -------------------------------------------------------------
     // Download Manager APIs
     // -------------------------------------------------------------
-    if (method === 'GET' && pathname === '/api/downloads/queue') {
+    if (method === 'GET' && (pathname === '/api/downloads' || pathname === '/api/downloads/' || pathname === '/api/downloads/queue')) {
       return sendJson(res, 200, downloadManager.getStatus());
     }
 
-    if (method === 'POST' && pathname === '/api/downloads/queue') {
+    if (method === 'POST' && (pathname === '/api/downloads' || pathname === '/api/downloads/' || pathname === '/api/downloads/queue')) {
       const body = await parseBody(req);
       const task = await downloadManager.queueDownload(body);
       return sendJson(res, 200, task);
@@ -526,8 +614,78 @@ const server = http.createServer(async (req, res) => {
       const activeModelId = runtimeManager.currentModel?.id || models[0]?.id;
 
       try {
+        // Retrieve User Profile & Memories to inject into conversation context
+        const userProfile = getUserProfile();
+        const userMemories = listUserMemories();
+
+        // Check for World Connect query or slash command in the last user message
+        const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+
+        // Auto-save user message directly to database if conversationId is provided
+        if (conversationId && lastUserMsg && lastUserMsg.content) {
+          try {
+            const db = getDatabase();
+            const existing = db.prepare(`SELECT id FROM messages WHERE conversation_id = ? AND role = 'user' AND content = ? ORDER BY created_at DESC LIMIT 1`).get(conversationId, lastUserMsg.content);
+            if (!existing) {
+              const userMsgId = 'msg-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+              addMessage(userMsgId, conversationId, 'user', lastUserMsg.content, 0, 0, activeModelId);
+            }
+          } catch (e) {}
+        }
+
+        let worldResult = null;
+        if (lastUserMsg && lastUserMsg.content) {
+          try {
+            worldResult = await pluginManager.processWorldQuery(lastUserMsg.content);
+          } catch (pluginErr) {
+            console.warn('World query error:', pluginErr.message);
+          }
+        }
+
+        if (worldResult) {
+          // Inform client of active world lookup
+          res.write(`data: ${JSON.stringify({ type: 'world_event', data: worldResult })}\n\n`);
+        }
+
+        // Prepare enhanced system message
+        let systemPrompt = `You are Nexyris, an advanced, high-performance AI assistant and neural co-pilot running 100% locally and privately from portable storage.
+You are insightful, helpful, intelligent, direct, and conversational.
+You automatically remember the user's preferences, background, and persistent memories across sessions.
+
+Important Instructions:
+- Answer naturally, clearly, and directly without robotic filler or repetitive disclaimers.
+- If live world information (e.g. web search, Wikipedia summary, live weather forecast, or GitHub repository data) is appended to the user prompt in brackets, treat it as verified real-time factual knowledge and use it seamlessly to answer the user's question. Never claim you cannot access the internet when live data is provided in the prompt.
+- When generating code, format it cleanly in markdown code blocks with the proper language tag.`;
+
+        if (userProfile) {
+          systemPrompt += `\n\nUser Context:\n- Name: ${userProfile.name || 'Explorer'}`;
+          if (userProfile.title) systemPrompt += `\n- Title/Role: ${userProfile.title}`;
+          if (userProfile.bio) systemPrompt += `\n- Bio: ${userProfile.bio}`;
+          if (userProfile.custom_instructions) systemPrompt += `\n- User Preferences: ${userProfile.custom_instructions}`;
+        }
+        if (userMemories && userMemories.length > 0) {
+          systemPrompt += `\n\nSaved User Memories & Facts:\n` + userMemories.map(m => `• [${m.category}] ${m.key}: ${m.value}`).join('\n');
+        }
+
+        // Build messages payload with injected context
+        const processedMessages = messages.map(m => ({ ...m }));
+        if (worldResult) {
+          const targetIndex = processedMessages.findLastIndex(m => m.role === 'user');
+          if (targetIndex !== -1) {
+            processedMessages[targetIndex].content = processedMessages[targetIndex].content + worldResult.contextText;
+          }
+        }
+
+        const hasSystem = processedMessages.some(m => m.role === 'system');
+        let finalMessages;
+        if (hasSystem) {
+          finalMessages = processedMessages.map(m => m.role === 'system' ? { ...m, content: `${systemPrompt}\n\n${m.content}` } : m);
+        } else {
+          finalMessages = [{ role: 'system', content: systemPrompt }, ...processedMessages];
+        }
+
         await runtimeManager.streamChat(
-          messages,
+          finalMessages,
           options || {},
           (tokenData) => {
             accumulated += tokenData.text;
@@ -535,8 +693,27 @@ const server = http.createServer(async (req, res) => {
           },
           (metrics) => {
             if (conversationId && accumulated.trim()) {
-              const msgId = 'msg-' + Date.now();
+              const msgId = 'msg-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
               addMessage(msgId, conversationId, 'assistant', accumulated, metrics.tokensGenerated, metrics.speedTokPerSec, activeModelId);
+              try {
+                const db = getDatabase();
+                // Auto-name conversation with AI on first exchange or if title is generic
+                const currentConv = db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId);
+                const msgCountRow = db.prepare('SELECT COUNT(*) as count FROM messages WHERE conversation_id = ?').get(conversationId);
+                const isEarlyExchange = !msgCountRow || msgCountRow.count <= 2;
+                const isGenericTitle = !currentConv || !currentConv.title || ['New Chat', 'New Conversation', 'Untitled', 'new chat', 'Default Conversation'].includes(currentConv.title.trim()) || currentConv.title.startsWith('temp-') || currentConv.title.length <= 4;
+
+                if (isGenericTitle || isEarlyExchange) {
+                  const autoTitle = generateSmartTitle(lastUserMsg?.content || '', accumulated);
+                  if (autoTitle && autoTitle !== currentConv?.title) {
+                    updateConversationTitle(conversationId, autoTitle);
+                    res.write(`data: ${JSON.stringify({ type: 'renamed', conversationId, title: autoTitle })}\n\n`);
+                  }
+                }
+                db.exec('PRAGMA wal_checkpoint(PASSIVE);');
+              } catch (e) {
+                console.warn('Auto-rename conversation error:', e.message);
+              }
             }
             res.write(`data: ${JSON.stringify({ type: 'done', metrics })}\n\n`);
             res.end();
@@ -551,6 +728,85 @@ const server = http.createServer(async (req, res) => {
         res.end();
       }
       return;
+    }
+
+    // -------------------------------------------------------------
+    // User Profile & Memories APIs
+    // -------------------------------------------------------------
+    if (method === 'GET' && (pathname === '/api/user/profile' || pathname === '/api/profile')) {
+      return sendJson(res, 200, getUserProfile());
+    }
+
+    if (method === 'POST' && (pathname === '/api/user/profile' || pathname === '/api/profile')) {
+      const body = await parseBody(req);
+      const updated = saveUserProfile(body);
+      return sendJson(res, 200, updated);
+    }
+
+    if (method === 'GET' && pathname === '/api/user/memories') {
+      return sendJson(res, 200, { memories: listUserMemories() });
+    }
+
+    if (method === 'POST' && pathname === '/api/user/memories') {
+      const body = await parseBody(req);
+      if (!body.value) return sendJson(res, 400, { error: 'Memory value is required' });
+      const added = addUserMemory(body);
+      return sendJson(res, 200, added);
+    }
+
+    if (method === 'DELETE' && pathname.startsWith('/api/user/memories/')) {
+      const memId = pathname.replace('/api/user/memories/', '');
+      const result = deleteUserMemory(memId);
+      return sendJson(res, 200, result);
+    }
+
+    // -------------------------------------------------------------
+    // World Connect Plugins APIs
+    // -------------------------------------------------------------
+    if (method === 'GET' && pathname === '/api/plugins') {
+      return sendJson(res, 200, { plugins: pluginManager.getAllPlugins() });
+    }
+
+    if (method === 'POST' && pathname === '/api/plugins') {
+      const body = await parseBody(req);
+      try {
+        const created = pluginManager.createCustomPlugin(body);
+        return sendJson(res, 201, created);
+      } catch (err) {
+        return sendJson(res, 400, { error: err.message });
+      }
+    }
+
+    if (method === 'DELETE' && pathname.startsWith('/api/plugins/') && !pathname.endsWith('/toggle') && !pathname.endsWith('/execute')) {
+      const pluginId = pathname.replace('/api/plugins/', '');
+      try {
+        const result = pluginManager.deleteCustomPlugin(pluginId);
+        return sendJson(res, 200, result);
+      } catch (err) {
+        return sendJson(res, 400, { error: err.message });
+      }
+    }
+
+    if (method === 'POST' && pathname.startsWith('/api/plugins/') && pathname.endsWith('/toggle')) {
+      const pluginId = pathname.replace('/api/plugins/', '').replace('/toggle', '');
+      const body = await parseBody(req);
+      try {
+        const result = pluginManager.togglePlugin(pluginId, body.enabled);
+        return sendJson(res, 200, result);
+      } catch (err) {
+        return sendJson(res, 400, { error: err.message });
+      }
+    }
+
+    if (method === 'POST' && pathname.startsWith('/api/plugins/') && pathname.endsWith('/execute')) {
+      const pluginId = pathname.replace('/api/plugins/', '').replace('/execute', '');
+      const body = await parseBody(req);
+      try {
+        const result = await pluginManager.executeTool(pluginId, body.tool, body.params || {});
+        return sendJson(res, 200, result);
+      } catch (err) {
+        return sendJson(res, 400, { error: err.message });
+      }
     }
 
     // -------------------------------------------------------------
@@ -611,6 +867,14 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { success: true });
     }
 
+    if (method === 'POST' && pathname.startsWith('/api/conversations/') && pathname.endsWith('/generate-title')) {
+      const id = pathname.replace('/api/conversations/', '').replace('/generate-title', '');
+      const body = await parseBody(req);
+      const title = generateSmartTitle(body.prompt || '', body.response || '');
+      updateConversationTitle(id, title);
+      return sendJson(res, 200, { success: true, id, title });
+    }
+
     if (method === 'DELETE' && pathname.startsWith('/api/conversations/')) {
       const id = pathname.replace('/api/conversations/', '');
       deleteConversation(id);
@@ -669,6 +933,13 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
         return fs.createReadStream(filePath).pipe(res);
       }
+    }
+
+    // -------------------------------------------------------------
+    // API 404 Guard: Never serve index.html for unmatched API routes
+    // -------------------------------------------------------------
+    if (pathname.startsWith('/api/')) {
+      return sendJson(res, 404, { error: `Endpoint not found: ${method} ${pathname}` });
     }
 
     // -------------------------------------------------------------

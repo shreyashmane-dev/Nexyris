@@ -33,6 +33,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
     loadRecentChats();
   }, [currentMode, activeConvId, refreshTrigger]);
 
+  useEffect(() => {
+    const handleRenameEvent = (e: any) => {
+      const { conversationId, title } = e.detail || {};
+      if (conversationId && title) {
+        setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, title } : c));
+      } else {
+        loadRecentChats();
+      }
+    };
+    window.addEventListener('nexyris-conversation-renamed', handleRenameEvent);
+    return () => window.removeEventListener('nexyris-conversation-renamed', handleRenameEvent);
+  }, []);
+
   const loadRecentChats = async () => {
     try {
       const list = await fetchConversations();
@@ -60,7 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="flex flex-col h-full">
         {/* Brand Header */}
         <div className="h-14 px-4 flex items-center justify-between border-b border-surface-container-highest flex-shrink-0">
-          <div className="flex items-center gap-2 cursor-pointer" onClick={() => onSelectMode('chat')}>
+          <div className="flex items-center gap-2 cursor-pointer" onClick={() => onSelectMode('dashboard')}>
             <div className="w-6 h-6 rounded bg-primary flex items-center justify-center flex-shrink-0 shadow-xs">
               {/* Minimal geometric N mark with crimson red node accent */}
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="15" height="15" fill="none">
@@ -135,6 +148,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Navigation Menu */}
         <div className="border-t border-surface-container-highest pt-2 pb-2 px-2 flex-shrink-0">
           <nav className="flex flex-col gap-0.5">
+            {/* Dashboard / Home */}
+            <a 
+              href="#dashboard"
+              onClick={(e) => { e.preventDefault(); onSelectMode('dashboard'); }}
+              className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-colors ${
+                currentMode === 'dashboard' 
+                  ? 'bg-surface-container-highest text-on-surface font-medium' 
+                  : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="material-symbols-outlined text-[17px] text-primary">dashboard</span>
+                <span className="font-body-sm">Dashboard</span>
+              </div>
+              {currentMode === 'dashboard' && <span className="w-1.5 h-1.5 rounded-full bg-primary"></span>}
+            </a>
+
             {/* Chat */}
             <a 
               href="#chat"
@@ -224,6 +254,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ) : currentMode === 'downloads' ? (
                 <span className="w-1.5 h-1.5 rounded-full bg-primary"></span>
               ) : null}
+            </a>
+
+            {/* Plugins (World Connect) */}
+            <a 
+              href="#plugins"
+              onClick={(e) => { e.preventDefault(); onSelectMode('plugins'); }}
+              className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-colors ${
+                currentMode === 'plugins' 
+                  ? 'bg-surface-container-highest text-on-surface font-medium' 
+                  : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="material-symbols-outlined text-[17px]">public</span>
+                <span className="font-body-sm">Plugins</span>
+              </div>
+              <span className="font-label-telemetry text-[9px] bg-primary/10 text-primary px-1.5 py-0.2 rounded font-semibold uppercase">
+                World
+              </span>
             </a>
 
             {/* Settings */}

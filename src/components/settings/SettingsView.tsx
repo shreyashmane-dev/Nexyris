@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Shield, Sliders, HardDrive, Palette, Save, Check, Server, Plus, Trash2, Copy, RefreshCw, Terminal, Radio } from 'lucide-react';
+import { Settings, Shield, Sliders, HardDrive, Palette, Save, Check, Server, Plus, Trash2, Copy, RefreshCw, Terminal, Radio, Sun, Moon, Sparkles } from 'lucide-react';
 import { HardwareInfo } from '../../types';
+import { getStoredTheme, applyTheme, ThemeMode } from '../../lib/theme';
 import { 
   fetchConfig, 
   updatePortableConfig, 
@@ -9,15 +10,22 @@ import {
   addMcpServer, 
   deleteMcpServer, 
   McpStatusResponse, 
-  McpServerInfo 
+  McpServerInfo,
+  fetchUserProfile,
+  saveUserProfile,
+  fetchUserMemories,
+  addUserMemory,
+  deleteUserMemory
 } from '../../lib/api';
+import { UserProfile, UserMemory } from '../../types';
 
 interface SettingsViewProps {
   hardware: HardwareInfo | null;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ hardware }) => {
-  const [activeTab, setActiveTab] = useState<'performance' | 'general' | 'storage' | 'privacy' | 'mcp'>('performance');
+  const [currentTheme, setCurrentTheme] = useState<ThemeMode>(getStoredTheme());
+  const [activeTab, setActiveTab] = useState<'performance' | 'general' | 'storage' | 'privacy' | 'mcp' | 'profile'>('performance');
   const [threads, setThreads] = useState(4);
   const [gpuLayers, setGpuLayers] = useState(0);
   const [contextSize, setContextSize] = useState(4096);
@@ -25,6 +33,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ hardware }) => {
   const [topP, setTopP] = useState(0.9);
   const [defaultApp, setDefaultApp] = useState('chat');
   const [savedMessage, setSavedMessage] = useState(false);
+
+  // User Profile & Memory States
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [userName, setUserName] = useState('');
+  const [userTitle, setUserTitle] = useState('');
+  const [userBio, setUserBio] = useState('');
+  const [userEmoji, setUserEmoji] = useState('🚀');
+  const [userInstructions, setUserInstructions] = useState('');
+  const [userMemories, setUserMemories] = useState<UserMemory[]>([]);
+  const [newMemKey, setNewMemKey] = useState('');
+  const [newMemValue, setNewMemValue] = useState('');
 
   // MCP State
   const [mcpData, setMcpData] = useState<McpStatusResponse | null>(null);
@@ -66,6 +85,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ hardware }) => {
       if (data.portable) {
         setDefaultApp(data.portable.defaultApplication || 'chat');
       }
+
+      const prof = await fetchUserProfile();
+      setUserProfile(prof);
+      setUserName(prof.name || '');
+      setUserTitle(prof.title || '');
+      setUserBio(prof.bio || '');
+      setUserEmoji(prof.avatar_emoji || '🚀');
+      setUserInstructions(prof.custom_instructions || '');
+
+      const mems = await fetchUserMemories();
+      setUserMemories(mems);
     } catch (e) {}
   };
 
@@ -117,6 +147,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ hardware }) => {
       }}>
         {[
           { id: 'performance', label: 'AI Performance & Hardware Tuning' },
+          { id: 'profile', label: 'User Profile & Persona' },
           { id: 'general', label: 'General & Startup' },
           { id: 'mcp', label: 'Model Context Protocol (MCP)' },
           { id: 'storage', label: 'Storage & Portability' },
@@ -260,6 +291,56 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ hardware }) => {
       {/* General Tab */}
       {activeTab === 'general' && (
         <div style={{ maxWidth: '680px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div className="glass-panel" style={{ padding: '20px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '6px' }}>
+              Studio Color Theme & Appearance
+            </h3>
+            <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              Customize how Nexyris displays surfaces and contrast. Dark mode turns white surfaces into sleek black/charcoal while preserving signature crimson node accents.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+              {[
+                { id: 'dark', label: 'Dark Charcoal', desc: 'Default studio surfaces', icon: Moon },
+                { id: 'oled', label: 'Pure OLED', desc: 'Pitch black #000000', icon: Sparkles },
+                { id: 'light', label: 'Studio Light', desc: 'Inverted light mode', icon: Sun },
+              ].map((item) => {
+                const isSelected = currentTheme === item.id;
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setCurrentTheme(item.id as ThemeMode);
+                      applyTheme(item.id as ThemeMode);
+                    }}
+                    style={{
+                      padding: '14px',
+                      borderRadius: '12px',
+                      border: isSelected ? '2px solid #dc2626' : '1px solid var(--border-subtle)',
+                      backgroundColor: isSelected ? 'rgba(220, 38, 38, 0.08)' : 'var(--surface-container-low)',
+                      color: 'var(--on-surface)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Icon size={18} color={isSelected ? '#dc2626' : 'var(--text-secondary)'} />
+                      {isSelected && <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#dc2626' }} />}
+                    </div>
+                    <span style={{ fontSize: '13px', fontWeight: 700 }}>{item.label}</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{item.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="glass-panel" style={{ padding: '20px' }}>
             <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '12px' }}>
               Default Startup Workspace
@@ -609,6 +690,161 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ hardware }) => {
               <div>✓ <strong>Zero Cloud Telemetry:</strong> Conversations and prompts are never transmitted to any third-party servers.</div>
               <div>✓ <strong>Portable Storage:</strong> Conversations and code projects remain on the USB storage drive.</div>
               <div>✓ <strong>Air-Gapped Operation:</strong> Once models are downloaded, Nexyris requires no internet connection.</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Profile & Persona Tab */}
+      {activeTab === 'profile' && (
+        <div style={{ maxWidth: '680px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div className="glass-panel" style={{ padding: '20px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '6px' }}>
+              User Profile & Identity
+            </h3>
+            <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              Information saved persistently in local SQLite on your USB drive. Injected into AI context to personalize responses.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                    User Name / Alias
+                  </label>
+                  <input
+                    type="text"
+                    value={userName}
+                    onChange={(e) => setUserName(e.target.value)}
+                    placeholder="e.g. Alex Vance"
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', background: 'var(--bg-app)', color: 'var(--text-primary)', fontSize: '13px' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                    Role / Title
+                  </label>
+                  <input
+                    type="text"
+                    value={userTitle}
+                    onChange={(e) => setUserTitle(e.target.value)}
+                    placeholder="e.g. Senior Software Architect"
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', background: 'var(--bg-app)', color: 'var(--text-primary)', fontSize: '13px' }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                  About You (Bio)
+                </label>
+                <textarea
+                  rows={2}
+                  value={userBio}
+                  onChange={(e) => setUserBio(e.target.value)}
+                  placeholder="Details about your background and workflows..."
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', background: 'var(--bg-app)', color: 'var(--text-primary)', fontSize: '13px', resize: 'none' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                  Custom System Persona Instructions
+                </label>
+                <textarea
+                  rows={3}
+                  value={userInstructions}
+                  onChange={(e) => setUserInstructions(e.target.value)}
+                  placeholder="Direct instructions for the AI on how to format responses, tone, preferences..."
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', background: 'var(--bg-app)', color: 'var(--text-primary)', fontSize: '13px', resize: 'none' }}
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await saveUserProfile({
+                      name: userName,
+                      title: userTitle,
+                      bio: userBio,
+                      avatar_emoji: userEmoji,
+                      custom_instructions: userInstructions,
+                    });
+                    alert('Profile saved to USB database!');
+                  } catch (e: any) {
+                    alert('Error saving profile: ' + e.message);
+                  }
+                }}
+                style={{ padding: '8px 16px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', alignSelf: 'flex-start' }}
+              >
+                Save Profile to SQLite
+              </button>
+            </div>
+          </div>
+
+          {/* Memories Card */}
+          <div className="glass-panel" style={{ padding: '20px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '6px' }}>
+              Persistent AI Memories ({userMemories.length})
+            </h3>
+            <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              Facts and preferences the AI remembers across all sessions.
+            </p>
+
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+              <input
+                type="text"
+                value={newMemKey}
+                onChange={(e) => setNewMemKey(e.target.value)}
+                placeholder="Topic (e.g. Favorite Language)"
+                style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', background: 'var(--bg-app)', color: 'var(--text-primary)', fontSize: '12px' }}
+              />
+              <input
+                type="text"
+                value={newMemValue}
+                onChange={(e) => setNewMemValue(e.target.value)}
+                placeholder="Details (e.g. TypeScript strict)"
+                style={{ flex: 2, padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', background: 'var(--bg-app)', color: 'var(--text-primary)', fontSize: '12px' }}
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!newMemValue) return;
+                  try {
+                    const m = await addUserMemory({ key: newMemKey || 'Fact', value: newMemValue });
+                    setUserMemories([m, ...userMemories]);
+                    setNewMemKey('');
+                    setNewMemValue('');
+                  } catch (e: any) {
+                    alert('Error: ' + e.message);
+                  }
+                }}
+                style={{ padding: '8px 14px', background: 'var(--bg-app)', border: '1px solid var(--border-subtle)', borderRadius: '8px', color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer' }}
+              >
+                + Add
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {userMemories.map((mem) => (
+                <div key={mem.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: '8px', background: 'var(--bg-app)', border: '1px solid var(--border-subtle)' }}>
+                  <div>
+                    <strong style={{ fontSize: '12px', color: 'var(--text-primary)' }}>{mem.key}:</strong>{' '}
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{mem.value}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await deleteUserMemory(mem.id);
+                      setUserMemories(userMemories.filter(m => m.id !== mem.id));
+                    }}
+                    style={{ border: 'none', background: 'transparent', color: '#dc2626', cursor: 'pointer', fontSize: '12px' }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         </div>
